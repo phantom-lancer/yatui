@@ -56,10 +56,14 @@ type Model struct {
 	hotkeys     *hotkeys.Tracker
 	contextMenu *contextMenu
 
-	toasts []toast
+	toasts            []toast
+	toastTimerPending bool
+	// toastPlaylist is the name of the playlist the last toast reported
+	toastPlaylist string
 
 	settings         *settingsModel
 	isSettingsActive bool
+	settingsHover    bool
 
 	manualQueue   []api.Track
 	queue         *queueModel
@@ -76,7 +80,8 @@ type Model struct {
 func New(mediaHandler handler.MediaHandler) *Model {
 	m := &Model{}
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// all motion: the selection follows the cursor, the way "hover" works
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	m.program = p
 	m.clipboard = clipboard.New()
 	m.mediaHandler = mediaHandler
@@ -142,8 +147,13 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// clicks must not reach the components behind an open dialog
-	if _, isMouse := message.(tea.MouseMsg); isMouse && (m.isSettingsActive || m.isQueueActive || m.isCacheActive) {
-		return m, nil
+	if mouseMsg, isMouse := message.(tea.MouseMsg); isMouse {
+		if m.isSettingsActive {
+			return m, m.settingsMouse(mouseMsg)
+		}
+		if m.isQueueActive || m.isCacheActive {
+			return m, nil
+		}
 	}
 
 	// async Last.fm auth results
@@ -213,7 +223,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, model.Cmd(playlist.CURSOR_UP)
 
 	case toastExpiredMsg:
+		m.toastTimerPending = false
 		m.expireToasts()
+		if len(m.toasts) > 0 {
+			// the messages were refreshed while the timer was running
+			m.scheduleToastExpiry()
+		}
 		return m, nil
 
 	case cacheListMsg:
@@ -395,20 +410,25 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg {
 		case tracker.NEXT:
 			m.nextTrack()
+			m.showPlayingToast()
 		case tracker.PREV:
 			m.prevTrack()
+			m.showPlayingToast()
 		case tracker.LIKE:
 			cmd = m.likePlayingTrack()
 			cmds = append(cmds, cmd)
 		case tracker.PLAY, tracker.PAUSE:
 			m.mediaHandler.OnPlayPause()
+			m.showPlayStateToast()
 		case tracker.STOP:
 			m.scrobbleCancel()
 			m.mediaHandler.OnEnded()
 		case tracker.REWIND:
 			m.mediaHandler.OnSeek(m.tracker.Position())
+			m.showSeekToast()
 		case tracker.VOLUME:
 			m.mediaHandler.OnVolume()
+			m.showVolumeToast()
 		case tracker.CACHE_TRACK:
 			cmd = m.cacheCurrentTrack()
 			cmds = append(cmds, cmd)
@@ -479,7 +499,7 @@ func (m *Model) viewBody() string {
 	}
 
 	if m.isSettingsActive && m.settings != nil {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.settings.view())
+		return m.placeSettings()
 	}
 
 	if m.isQueueActive && m.queue != nil {
@@ -495,6 +515,9 @@ func (m *Model) viewBody() string {
 	} else if m.isRenamePlaylistActive {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.inputDialog.View())
 	}
+
+	// the settings button lives at the bottom of the sidebar
+	m.playlists.SetFooter(m.settingsButtonView())
 
 	playlistView := m.playlists.View()
 	playlistWidth := lipgloss.Width(playlistView)
@@ -552,6 +575,13 @@ func (m *Model) followSelectedPlaylist() {
 	m.indicateCurrentTrackPlaying(true)
 
 	m.tracklist.Shufflable = (selectedPlaylist.Kind != playlist.NONE && selectedPlaylist.Kind != playlist.MYWAVE && len(selectedPlaylist.Tracks) > 0)
+
+	// the same message is reused, so scrolling through the sidebar with the
+	// wheel or the mouse does not leave a trail of toasts
+	if selectedPlaylist.Name != m.toastPlaylist {
+		m.toastPlaylist = selectedPlaylist.Name
+		m.showPlaylistToast(selectedPlaylist.Name)
+	}
 }
 
 func (m *Model) resize(width, height int) {

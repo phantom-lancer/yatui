@@ -51,6 +51,11 @@ type Model struct {
 	helpMap       *helpKeyMap
 	width, height int
 	layout        listLayout
+
+	// footer is an optional clickable block under the list
+	footer      string
+	footerHover bool
+	footerRect  Rect
 }
 
 func New(p *tea.Program, title string) *Model {
@@ -85,21 +90,42 @@ func (m *Model) Init() tea.Cmd {
 
 func (m *Model) View() string {
 	if m.Hidden {
+		m.footerRect = Rect{}
 		return ""
 	}
 
 	m.helpMap.Renamable = m.SelectedItem().Kind >= USER
+	listHeight := m.height - 2
 	if m.help.ShowAll {
-		m.list.SetHeight(m.height - 3)
-	} else {
-		m.list.SetHeight(m.height - 2)
+		listHeight = m.height - 3
 	}
+
+	// the footer is dropped when there is no room for it: the sidebar must
+	// keep its height, or the layout of the whole screen would break
+	footer := ""
+	if m.footer != "" && listHeight-m.footerHeight() >= 1 {
+		footer = m.footer
+	}
+	m.list.SetHeight(listHeight - footerHeight(footer))
 
 	hp := lipgloss.NewStyle().PaddingLeft(2).MaxWidth(m.width - 2).Render(m.help.View(m.helpMap))
 	m.resetLayout()
 	listView := m.list.View()
 	m.buildLayout()
-	return style.SideBoxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, listView, "", hp))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, listView, "", hp)
+	m.footerRect = Rect{}
+	if footer != "" {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, "", footer)
+		m.footerRect = Rect{
+			X:      m.layout.originX,
+			Y:      style.SideBoxStyle.GetBorderTopSize() + style.SideBoxStyle.GetPaddingTop() + lipgloss.Height(listView) + 1 + lipgloss.Height(hp) + 1,
+			Width:  lipgloss.Width(footer),
+			Height: lipgloss.Height(footer),
+		}
+	}
+
+	return style.SideBoxStyle.Render(content)
 }
 
 func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {

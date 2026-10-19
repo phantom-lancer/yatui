@@ -92,6 +92,14 @@ var (
 	ToastAccentStyle lipgloss.Style
 )
 
+// SettingsButton is the small clickable block in the corner of the sidebar.
+var (
+	SettingsButtonStyle       lipgloss.Style
+	SettingsButtonActiveStyle lipgloss.Style
+	SettingsButtonTextStyle   lipgloss.Style
+	SettingsButtonHintStyle   lipgloss.Style
+)
+
 func Apply(style *config.Style) {
 	VolumeIndicatorWidth = style.VolumeIndicatorWidth
 	VolumeIndicatorAutohide = style.VolumeIndicatorAutohide
@@ -219,4 +227,17 @@ func Apply(style *config.Style) {
 	ToastAccentStyle = lipgloss.NewStyle().
 		Foreground(AccentColor).
 		Background(PlaylistSelectionColor)
+
+	SettingsButtonStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(BorderColor).
+		Padding(0, 1)
+	SettingsButtonActiveStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(AccentColor).
+		Padding(0, 1)
+	SettingsButtonTextStyle = lipgloss.NewStyle().
+		Foreground(NormalTextColor)
+	SettingsButtonHintStyle = lipgloss.NewStyle().
+		Foreground(InactiveTextColor)
 }

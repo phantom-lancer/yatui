@@ -39,7 +39,7 @@ func TestNormalizationDisabled(t *testing.T) {
 	track.Normalization.Gain = -6
 	track.Normalization.Peak = 0.9
 
-	n := newNormalization(track)
+	n, _ := newNormalization(track)
 	if n.scale() {
 		t.Fatalf("disabled normalization must not scale, got %+v", n)
 	}
@@ -55,12 +55,22 @@ func TestNormalizationDisabled(t *testing.T) {
 	}
 }
 
-func TestNormalizationNoInfoIsNoop(t *testing.T) {
+func TestNormalizationNoInfoIsMeasured(t *testing.T) {
 	setNormalization(t, true)
 
-	n := newNormalization(&api.Track{})
+	// the API does not send the gain anymore: such tracks have to be measured
+	n, measure := newNormalization(&api.Track{})
 	if n.scale() {
-		t.Fatalf("track without gain info must not scale, got %+v", n)
+		t.Fatalf("track without gain info must not scale on its own, got %+v", n)
+	}
+	if !measure {
+		t.Fatal("track without gain info has to be measured")
+	}
+
+	// a disabled normalization must never measure anything
+	setNormalization(t, false)
+	if _, measure := newNormalization(&api.Track{}); measure {
+		t.Fatal("disabled normalization must not measure the track")
 	}
 }
 
@@ -71,7 +81,7 @@ func TestNormalizationAppliesGain(t *testing.T) {
 	track.Normalization.Gain = -6.0206 // ~ -1/2 in linear scale
 	track.Normalization.Peak = 0
 
-	n := newNormalization(track)
+	n, _ := newNormalization(track)
 	if !n.scale() {
 		t.Fatal("expected scaling to be enabled")
 	}
@@ -97,7 +107,7 @@ func TestNormalizationPeakLimiting(t *testing.T) {
 	track.Normalization.Gain = 6 // +6 dB => linear ~2.0
 	track.Normalization.Peak = 0.8
 
-	n := newNormalization(track)
+	n, _ := newNormalization(track)
 	if !n.scale() {
 		t.Fatal("expected scaling to be enabled")
 	}
@@ -126,7 +136,7 @@ func TestNormalizationClampsInvalidGain(t *testing.T) {
 	track := &api.Track{}
 	track.Normalization.Gain = 200
 
-	n := newNormalization(track)
+	n, _ := newNormalization(track)
 	if n.linear > 10 {
 		t.Fatalf("gain was not clamped: %f", n.linear)
 	}

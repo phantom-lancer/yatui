@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dece2183/yamusic-tui/api"
@@ -511,6 +512,16 @@ func (m *Model) SetVolume(v float64) {
 	config.Save()
 }
 
+// LastGain reports the correction, in decibels, that the loudness
+// normalization applied to the current track. It is 0 when the track is
+// played as is or when nothing has been played yet.
+func (m *Model) LastGain() float64 {
+	if m.trackWrapper == nil {
+		return 0
+	}
+	return math.Float64frombits(atomic.LoadUint64(&m.trackWrapper.gainDB))
+}
+
 func (m *Model) SetLirycs(show bool) {
 	m.showLyrics = show
 	config.Current.ShowLyrics = m.showLyrics
@@ -579,6 +590,11 @@ func (m *Model) Stop() {
 
 func (m *Model) IsPlaying() bool {
 	return m.player != nil && m.trackWrapper.trackBuffer != nil && m.player.IsPlaying() && !m.paused
+}
+
+// Paused reports whether the playback is paused.
+func (m *Model) Paused() bool {
+	return m.paused
 }
 
 func (m *Model) IsStoped() bool {

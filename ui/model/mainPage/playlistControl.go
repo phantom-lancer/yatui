@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"fmt"
 	"math/rand"
 	"slices"
 	"strings"
@@ -245,6 +246,7 @@ func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
 	cmds = append(cmds, m.playlists.SetItem(m.playlists.Index(), pl))
 	cmds = append(cmds, m.tracklist.SetItems(trackList))
 	m.tracklist.Select(selectedTrackIndex)
+	m.showToast(fmt.Sprintf("Перемешано: %d", len(tracks)))
 
 	if m.currentPlaylistIndex >= 0 && pl.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
 		m.playQueue = pl.Tracks

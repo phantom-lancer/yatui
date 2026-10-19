@@ -16,6 +16,9 @@ const (
 )
 
 type toast struct {
+	// kind groups repeated messages: a new toast of the same kind replaces
+	// the previous one instead of stacking next to it
+	kind    string
 	text    string
 	expires time.Time
 }
@@ -27,18 +30,46 @@ type toastExpiredMsg struct{}
 // showToast displays a short status message above the bottom edge of the
 // screen. It is safe to call from any handler.
 func (m *Model) showToast(text string) {
+	m.showToastKind("", text)
+}
+
+// showToastKind is showToast for messages that repeat, like the volume or the
+// playback position: the previous message of the same kind is replaced, so the
+// corner is never flooded. An empty kind is replaced by its own text, which
+// means that a message shown twice in a row is not duplicated either.
+func (m *Model) showToastKind(kind, text string) {
 	if text == "" {
 		return
 	}
+	if kind == "" {
+		kind = text
+	}
 
-	m.toasts = append(m.toasts, toast{text: text, expires: time.Now().Add(toastDuration)})
+	for i := range m.toasts {
+		if m.toasts[i].kind == kind {
+			m.toasts[i].text = text
+			m.toasts[i].expires = time.Now().Add(toastDuration)
+			m.scheduleToastExpiry()
+			return
+		}
+	}
+
+	m.toasts = append(m.toasts, toast{kind: kind, text: text, expires: time.Now().Add(toastDuration)})
 	if len(m.toasts) > maxToasts {
 		m.toasts = m.toasts[len(m.toasts)-maxToasts:]
 	}
 
-	if m.program == nil {
+	m.scheduleToastExpiry()
+}
+
+// scheduleToastExpiry arms the single pruning timer. Extra calls are ignored,
+// so a key that repeats cannot spawn a goroutine per message.
+func (m *Model) scheduleToastExpiry() {
+	if m.program == nil || m.toastTimerPending {
 		return
 	}
+
+	m.toastTimerPending = true
 	time.AfterFunc(toastDuration+50*time.Millisecond, func() {
 		m.program.Send(toastExpiredMsg{})
 	})

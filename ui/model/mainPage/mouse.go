@@ -107,6 +107,7 @@ func toRect(region tracker.Rect) Rect {
 type mouseLayout struct {
 	playlist  Rect
 	tracklist Rect
+	settings  Rect
 	prev      Rect
 	play      Rect
 	next      Rect
@@ -125,6 +126,28 @@ func (m *Model) updateMouseLayout(playlistView, tracklistView, trackerView, midP
 		playlistView, tracklistView, trackerView, midPanel,
 		m.tracker.Regions(),
 	)
+
+	// the settings button is a part of the sidebar
+	m.mouse.settings = placeSidebarFooter(m.mouse.playlist, toScreenRect(m.playlists.FooterRect()))
+}
+
+// toScreenRect converts an area of the sidebar view to the screen coordinates.
+func toScreenRect(r playlist.Rect) Rect {
+	return Rect{X: r.X, Y: r.Y, Width: r.Width, Height: r.Height}
+}
+
+// placeSidebarFooter maps the footer of the sidebar to the screen.
+func placeSidebarFooter(playlist, footer Rect) Rect {
+	if footer.IsEmpty() {
+		return Rect{}
+	}
+
+	return Rect{
+		X:      playlist.X + footer.X,
+		Y:      playlist.Y + footer.Y,
+		Width:  footer.Width,
+		Height: footer.Height,
+	}
 }
 
 // buildMouseLayout converts component views to their screen coordinates.
@@ -191,6 +214,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return m.mouseScroll(msg.X, msg.Y, false)
 	}
 
+	if msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone {
+		return m.mouseMotion(msg.X, msg.Y)
+	}
+
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 		return m.mouseClick(msg.X, msg.Y)
 	}
@@ -202,11 +229,50 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
+// mouseMotion moves the selection to the element under the cursor, so the
+// pointer works like the cursor keys.
+func (m *Model) mouseMotion(x, y int) tea.Cmd {
+	hover := m.mouse.settings.Contains(x, y)
+	if hover != m.settingsHover {
+		m.settingsHover = hover
+	}
+
+	if hover {
+		return nil
+	}
+
+	// tracks list
+	if m.mouse.tracklist.Contains(x, y) {
+		index := m.tracklist.ItemAt(x-m.mouse.tracklist.X, y-m.mouse.tracklist.Y)
+		if index >= 0 && index != m.tracklist.Index() {
+			m.tracklist.Select(index)
+			return m.selectTrack(index)
+		}
+		return nil
+	}
+
+	// playlists
+	if m.mouse.playlist.Contains(x, y) {
+		index := m.playlists.ItemAt(x-m.mouse.playlist.X, y-m.mouse.playlist.Y)
+		if index >= 0 && index != m.playlists.Index() && m.playlists.ClickItem(index) {
+			m.followSelectedPlaylist()
+		}
+	}
+
+	return nil
+}
+
 //
 // left button click
 //
 
 func (m *Model) mouseClick(x, y int) tea.Cmd {
+	// settings button
+	if m.mouse.settings.Contains(x, y) {
+		m.toggleSettings()
+		return tea.ClearScreen
+	}
+
 	switch {
 	case m.mouse.prev.Contains(x, y):
 		return model.Cmd(tracker.PREV)

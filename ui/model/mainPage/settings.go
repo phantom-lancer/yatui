@@ -2,6 +2,7 @@ package mainpage
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -33,9 +34,123 @@ type settingItem struct {
 }
 
 type settingsModel struct {
-	index int
-	width int
-	items []settingItem
+	index  int
+	width  int
+	items  []settingItem
+	layout settingsLayout
+}
+
+// settingsLayout is where the rendered dialog ended up on the screen, so the
+// mouse can be mapped back to the rows.
+type settingsLayout struct {
+	x, y          int
+	width, height int
+	// rowX is the first cell of a row, rowY the first row
+	rowX, rowY int
+	// rowWidth is the width of the row content, labelWidth the width of the
+	// label column
+	rowWidth, labelWidth int
+	rows                 int
+	valid                bool
+}
+
+// rowAt returns the index of the row under the given screen coordinates.
+func (l settingsLayout) rowAt(x, y int) (int, bool) {
+	if !l.valid || x < l.x || x >= l.x+l.width || y < l.rowY {
+		return 0, false
+	}
+	if row := y - l.rowY; row < l.rows {
+		return row, true
+	}
+	return 0, false
+}
+
+// valueDir reports which part of the row is under the cursor: -1 for the left
+// half of the value, 1 for the right one and 0 for the rest of the row.
+func (l settingsLayout) valueDir(x, row int) int {
+	valueX := l.rowX + l.labelWidth + 2
+	valueWidth := l.rowWidth - l.labelWidth - 2
+	if x < valueX || valueWidth < 2 {
+		return 0
+	}
+	if x >= valueX+valueWidth {
+		return 0
+	}
+	if 2*(x-valueX) < valueWidth {
+		return -1
+	}
+	return 1
+}
+
+// placeSettings draws the dialog in the middle of the screen and remembers
+// where every row landed.
+func (m *Model) placeSettings() string {
+	view := m.settings.view()
+	placed := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, view)
+
+	width := lipgloss.Width(view)
+	height := lipgloss.Height(view)
+	x := (m.width - width) / 2
+	y := (m.height - height) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	box := style.DialogBoxStyle
+	m.settings.layout = settingsLayout{
+		x:          x,
+		y:          y,
+		width:      width,
+		height:     height,
+		rowX:       x + box.GetBorderLeftSize() + box.GetPaddingLeft() + 1,
+		rowY:       y + box.GetBorderTopSize() + box.GetPaddingTop() + 2,
+		rowWidth:   m.settings.width,
+		labelWidth: m.settings.labelWidth(),
+		rows:       len(m.settings.items),
+		valid:      len(m.settings.items) > 0,
+	}
+
+	return placed
+}
+
+// settingsMouse handles the mouse while the settings dialog is open. Only the
+// dialog is interactive: everything behind it is ignored.
+func (m *Model) settingsMouse(msg tea.MouseMsg) tea.Cmd {
+	if m.settings == nil {
+		return nil
+	}
+	layout := m.settings.layout
+
+	switch msg.Action {
+	case tea.MouseActionMotion:
+		if msg.Button != tea.MouseButtonNone {
+			break
+		}
+		if row, ok := layout.rowAt(msg.X, msg.Y); ok && row != m.settings.index {
+			m.settings.index = row
+		}
+
+	case tea.MouseActionPress:
+		if msg.Button != tea.MouseButtonLeft && msg.Button != tea.MouseButtonMiddle {
+			break
+		}
+
+		row, ok := layout.rowAt(msg.X, msg.Y)
+		if !ok {
+			// a click outside of the dialog closes it
+			m.isSettingsActive = false
+			m.settings = nil
+			return tea.ClearScreen
+		}
+
+		m.settings.index = row
+		return tea.Batch(tea.ClearScreen, m.settings.change(layout.valueDir(msg.X, row)))
+	}
+
+	return nil
 }
 
 func (s *settingsModel) up() {
@@ -90,9 +205,17 @@ func (s *settingsModel) view() string {
 			value = item.value()
 		}
 
+		// the value of the selected row is framed with arrows: they show
+		// where the left and the right mouse buttons are, and the halves of
+		// the value area work the way the arrows point
+		valueCell := padLeft(value, valueWidth)
+		if i == s.index && item.kind != settingInfo && valueWidth >= 6 {
+			valueCell = "‹ " + padLeft(value, valueWidth-4) + " ›"
+		}
+
 		// the row is laid out by hand: every line is exactly s.width cells
 		// wide, so a long value can never wrap and break the grid
-		line := padRight(item.label, labelWidth) + "  " + padLeft(value, valueWidth)
+		line := padRight(item.label, labelWidth) + "  " + valueCell
 
 		rowStyle := lipgloss.NewStyle().Padding(0, 1)
 		if i == s.index {
@@ -114,7 +237,7 @@ func (s *settingsModel) view() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		box,
-		style.DialogHelpStyle.Render("↑/↓ — выбрать, ←/→ — изменить, esc — закрыть"),
+		style.DialogHelpStyle.Render("↑/↓, мышь — выбор, ←/→ — изменить, esc — выход"),
 	)
 }
 
@@ -282,7 +405,15 @@ func (m *Model) buildSettings() []settingItem {
 			label: "Нормализация",
 			kind:  settingBool,
 			value: func() string {
-				return onOff(config.Current.Normalization != nil && config.Current.Normalization.Enabled)
+				if config.Current.Normalization == nil || !config.Current.Normalization.Enabled {
+					return "выкл"
+				}
+				// the measured correction of the current track is shown
+				// right here: it makes the feature visible
+				if gain := m.tracker.LastGain(); math.Abs(gain) > 0.05 {
+					return fmt.Sprintf("вкл (%.1f дБ)", gain)
+				}
+				return "вкл"
 			},
 			apply: func(dir int) tea.Cmd {
 				if config.Current.Normalization == nil {

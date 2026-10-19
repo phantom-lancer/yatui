@@ -20,23 +20,29 @@ type normalization struct {
 
 var noNormalization = normalization{linear: 1, limit: 1}
 
-// newNormalization reads the track gain out of the API response and turns it
-// into multipliers. Tracks without normalization info (and cached tracks)
-// stay untouched.
-func newNormalization(track *api.Track) normalization {
-	n := noNormalization
-	if track == nil {
-		return n
-	}
-
+// normalizationEnabled reports whether the config asks for the normalized
+// playback. The key is optional: without it the normalization is on.
+func normalizationEnabled() bool {
 	cfg := config.Current.Normalization
-	if cfg == nil || !cfg.Enabled {
-		return n
+	return cfg != nil && cfg.Enabled
+}
+
+// newNormalization reads the track gain out of the API response and turns it
+// into multipliers. The second return value reports that the track has no gain
+// info (which is the case for every track nowadays) and that the loudness of
+// the track has to be measured locally.
+func newNormalization(track *api.Track) (normalization, bool) {
+	n := noNormalization
+	if !normalizationEnabled() {
+		return n, false
+	}
+	if track == nil {
+		return n, false
 	}
 
 	gain := float64(track.Normalization.Gain)
 	if gain == 0 {
-		return n
+		return n, true
 	}
 
 	// sanity clamp: a wrong value must never blow the speakers up
@@ -56,7 +62,16 @@ func newNormalization(track *api.Track) normalization {
 		}
 	}
 
-	return n
+	return n, false
+}
+
+// gainDB is the correction, in decibels, that the normalization applies to a
+// track.
+func (n normalization) gainDB() float64 {
+	if n.linear <= 0 {
+		return 0
+	}
+	return 20 * math.Log10(float64(n.linear*n.limit))
 }
 
 // scale returns true when the buffer has to be rewritten at all.
