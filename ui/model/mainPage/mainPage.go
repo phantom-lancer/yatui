@@ -57,6 +57,9 @@ type Model struct {
 	contextMenu *contextMenu
 
 	toasts []toast
+
+	settings         *settingsModel
+	isSettingsActive bool
 }
 
 // mainpage.Model constructor.
@@ -112,6 +115,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
+
+	// settings dialog captures the keys while it is open
+	if cmd, handled := m.settingsControl(message); handled {
+		return m, cmd
+	}
 
 	// context menu has priority over everything.
 	// tea.ClearScreen is deliberately not used here: it would repaint the
@@ -189,6 +197,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// function keys detected by the keyboard watcher
 	case hotkeys.HotkeyMsg:
+		if config.Current.Controls.Settings.Contains(msg.String()) {
+			m.toggleSettings()
+			cmds = append(cmds, tea.ClearScreen)
+			break
+		}
 		cmds = append(cmds, m.playerHotkey(msg.String()))
 
 	case tea.KeyMsg:
@@ -210,6 +223,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		case controls.Theme.Contains(keypress):
 			m.cycleTheme()
+			cmds = append(cmds, tea.ClearScreen)
+		case controls.Settings.Contains(keypress):
+			m.toggleSettings()
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.Reload.Contains(keypress):
 			m.isLoading = true
@@ -419,6 +435,10 @@ func (m *Model) View() string {
 func (m *Model) viewBody() string {
 	if m.isLoading {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.spinner.View())
+	}
+
+	if m.isSettingsActive && m.settings != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.settings.view())
 	}
 
 	if m.isSearchActive || m.isAddPlaylistActive {

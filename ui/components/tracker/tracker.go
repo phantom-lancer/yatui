@@ -517,6 +517,21 @@ func (m *Model) SetLirycs(show bool) {
 	config.Save()
 }
 
+// SetRewind changes the rewind step for the skip keys.
+func (m *Model) SetRewind(amount time.Duration) {
+	if amount < time.Second {
+		amount = time.Second
+	}
+	m.rewindAmount = amount
+	config.Current.RewindDuration = amount.Seconds()
+	config.Save()
+}
+
+// Lyrics reports whether the lyrics panel is shown.
+func (m *Model) Lyrics() bool {
+	return m.showLyrics
+}
+
 func (m *Model) Volume() float64 {
 	return m.volume
 }

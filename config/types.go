@@ -92,6 +92,7 @@ type Controls struct {
 	Reload      *Key `yaml:"reload"`
 	ShowAllKeys *Key `yaml:"show-all-kyes"`
 	Theme       *Key `yaml:"theme"`
+	Settings    *Key `yaml:"settings"`
 	// Playlists control
 	PlaylistsUp     *Key `yaml:"playlists-up"`
 	PlaylistsDown   *Key `yaml:"playlists-down"`
@@ -182,6 +183,7 @@ var defaultConfig = Config{
 		Reload:                   NewKey("ctrl+\\"),
 		ShowAllKeys:              NewKey("?"),
 		Theme:                    NewKey("ctrl+y"),
+		Settings:                 NewKey("f9"),
 		PlaylistsUp:              NewKey("ctrl+up"),
 		PlaylistsDown:            NewKey("ctrl+down"),
 		PlaylistsRename:          NewKey("ctrl+r"),

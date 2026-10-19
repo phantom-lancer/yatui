@@ -19,6 +19,7 @@ const (
 	_VK_F6 = 0x75
 	_VK_F7 = 0x76
 	_VK_F8 = 0x77
+	_VK_F9 = 0x78
 )
 
 var functionKeys = [...]struct {
@@ -28,6 +29,7 @@ var functionKeys = [...]struct {
 	{_VK_F6, tea.KeyF6},
 	{_VK_F7, tea.KeyF7},
 	{_VK_F8, tea.KeyF8},
+	{_VK_F9, tea.KeyF9},
 }
 
 func isKeyDown(vkey int32) bool {
