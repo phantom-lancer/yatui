@@ -71,6 +71,13 @@ func load() (Config, error) {
 		newConfig.Search = &search
 	}
 
+	// missing in the config file means "enabled", so an existing config
+	// keeps working exactly as before this option appeared
+	if newConfig.Normalization == nil {
+		normalization := *defaultConfig.Normalization
+		newConfig.Normalization = &normalization
+	}
+
 	if newConfig.Controls == nil {
 		controls := *defaultConfig.Controls
 		newConfig.Controls = &controls

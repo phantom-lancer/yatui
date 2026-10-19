@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	mp3 "github.com/dece2183/go-stream-mp3"
+	"github.com/dece2183/yamusic-tui/api"
 	"github.com/dece2183/yamusic-tui/log"
 	"github.com/dece2183/yamusic-tui/stream"
 )
@@ -21,14 +22,16 @@ type readWrapper struct {
 	trackBuffered  bool
 	trackDone      bool
 	lastUpdateTime time.Time
+	normalization  normalization
 }
 
-func (w *readWrapper) NewReader(reader *stream.BufferedStream) {
+func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track) {
 	var err error
 
 	w.trackBuffered = false
 	w.trackDone = false
 	w.trackBuffer = reader
+	w.normalization = newNormalization(track)
 	w.decoder, err = mp3.NewDecoder(w.trackBuffer)
 	if err != nil {
 		log.Print(log.LVL_ERROR, "failed to create mp3 decoder: %s", err)
@@ -65,6 +68,12 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 		// bypass mp3 decoding error after rewinding
 		log.Print(log.LVL_WARNIGN, "mp3 decoding error: %s", err)
 		err = nil
+	}
+
+	// volume normalization is applied to the decoded samples, right before
+	// they reach the player
+	if n > 0 {
+		w.normalization.apply(dest[:n])
 	}
 
 	if w.trackBuffer.IsBuffered() && !w.trackBuffered {

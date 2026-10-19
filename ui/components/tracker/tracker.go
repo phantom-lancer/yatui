@@ -495,7 +495,7 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	}
 
 	m.track = *track
-	m.trackWrapper.NewReader(reader)
+	m.trackWrapper.NewReader(reader, &m.track)
 	m.player = m.playerContext.NewPlayer(m.trackWrapper)
 	m.player.SetVolume(0)
 	m.player.Play()

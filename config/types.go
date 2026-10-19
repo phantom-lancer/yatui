@@ -122,6 +122,12 @@ type Controls struct {
 	PlayerHide           *Key `yaml:"player-hide"`
 }
 
+// Normalization controls volume normalization based on the R128 gain that
+// Yandex Music sends with every track (api.Track.Normalization).
+type Normalization struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 type Search struct {
 	Artists   bool `yaml:"artists"`
 	Popular   bool `yaml:"popular"`
@@ -130,20 +136,21 @@ type Search struct {
 }
 
 type Config struct {
-	Token          string    `yaml:"token"`
-	BufferSize     float64   `yaml:"buffer-size-ms"`
-	RewindDuration float64   `yaml:"rewind-duration-s"`
-	Volume         float64   `yaml:"volume"`
-	VolumeStep     float64   `yaml:"volume-step"`
-	SuppressErrors bool      `yaml:"suppress-errors"`
-	ShowLyrics     bool      `yaml:"show-lyrics"`
-	CacheTracks    CacheType `yaml:"cache-tracks"`
-	CacheDir       string    `yaml:"cache-dir"`
-	Proxy          string    `yaml:"proxy"`
-	SSLCerts       []string  `yaml:"ssl-certs"`
-	Search         *Search   `yaml:"search"`
-	Controls       *Controls `yaml:"controls"`
-	Style          *Style    `yaml:"style"`
+	Token          string         `yaml:"token"`
+	BufferSize     float64        `yaml:"buffer-size-ms"`
+	RewindDuration float64        `yaml:"rewind-duration-s"`
+	Volume         float64        `yaml:"volume"`
+	VolumeStep     float64        `yaml:"volume-step"`
+	SuppressErrors bool           `yaml:"suppress-errors"`
+	ShowLyrics     bool           `yaml:"show-lyrics"`
+	CacheTracks    CacheType      `yaml:"cache-tracks"`
+	CacheDir       string         `yaml:"cache-dir"`
+	Proxy          string         `yaml:"proxy"`
+	SSLCerts       []string       `yaml:"ssl-certs"`
+	Search         *Search        `yaml:"search"`
+	Normalization  *Normalization `yaml:"normalization"`
+	Controls       *Controls      `yaml:"controls"`
+	Style          *Style         `yaml:"style"`
 }
 
 var defaultConfig = Config{
@@ -160,6 +167,9 @@ var defaultConfig = Config{
 		Popular:   false,
 		Albums:    false,
 		Playlists: false,
+	},
+	Normalization: &Normalization{
+		Enabled: true,
 	},
 	Controls: &Controls{
 		Quit:                     NewKey("ctrl+q,ctrl+c"),
