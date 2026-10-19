@@ -1,0 +1,368 @@
+package mainpage
+
+import (
+	"math/rand"
+	"slices"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dece2183/yamusic-tui/api"
+	"github.com/dece2183/yamusic-tui/log"
+	"github.com/dece2183/yamusic-tui/ui/components/input"
+	"github.com/dece2183/yamusic-tui/ui/components/playlist"
+	"github.com/dece2183/yamusic-tui/ui/components/search"
+	"github.com/dece2183/yamusic-tui/ui/components/tracklist"
+	"github.com/dece2183/yamusic-tui/ui/helpers"
+	"github.com/dece2183/yamusic-tui/ui/style"
+)
+
+func (m *Model) addPlaylistControl(msg search.Control) tea.Cmd {
+	var cmd tea.Cmd
+
+	switch msg {
+	case search.SELECT:
+		m.isAddPlaylistActive = false
+
+		selectedPlaylist := m.playlists.SelectedItem()
+		if len(selectedPlaylist.Tracks) == 0 {
+			return nil
+		}
+
+		playlists := m.playlists.Items()
+		inputVal, ok := m.searchDialog.SuggestionValue()
+		if !ok {
+			return nil
+		}
+
+		foundPlaylistIndex := -1
+		var foundPlaylist *playlist.Item
+		for i := range playlists {
+			if playlists[i].Active && playlists[i].Kind >= playlist.USER {
+				if strings.EqualFold(playlists[i].Name, inputVal) {
+					foundPlaylist = playlists[i]
+					foundPlaylistIndex = i
+					break
+				} else if foundPlaylistIndex < 0 {
+					foundPlaylistIndex = i
+				}
+			}
+		}
+
+		if foundPlaylist == nil {
+			pl, err := m.client.CreatePlaylist(inputVal, true)
+			if err != nil {
+				log.Print(log.LVL_ERROR, "failed to create playlist [%s]: %s", inputVal, err)
+				m.tracker.ShowError("playlist create")
+				return nil
+			}
+
+			foundPlaylist = &playlist.Item{
+				Name:     pl.Title,
+				Kind:     pl.Kind,
+				Revision: pl.Revision,
+				Active:   true,
+				Subitem:  true,
+			}
+
+			m.playlists.InsertItem(foundPlaylistIndex, foundPlaylist)
+			if foundPlaylistIndex < m.playlists.Index() {
+				m.playlists.Select(m.playlists.Index() + 1)
+			}
+			if m.currentPlaylistIndex >= m.playlists.Index() {
+				m.currentPlaylistIndex += 1
+			}
+		}
+
+		if selectedPlaylist.Kind == foundPlaylist.Kind {
+			return nil
+		}
+
+		selectedTrack := &selectedPlaylist.Tracks[m.tracklist.Index()]
+		pl, err := m.client.AddToPlaylist(foundPlaylist.Kind, foundPlaylist.Revision, len(foundPlaylist.Tracks), selectedTrack.Id)
+		if err != nil {
+			log.Print(log.LVL_ERROR, "failed to add track [%s] to playlist [%s]: %s", selectedTrack.Id, foundPlaylist.Name, err)
+			m.tracker.ShowError("playlist add")
+			return nil
+		}
+
+		foundPlaylist.Revision = pl.Revision
+		foundPlaylist.Tracks = append(foundPlaylist.Tracks, *selectedTrack)
+		cmd = m.playlists.SetItem(foundPlaylistIndex, foundPlaylist)
+
+		if m.currentPlaylistIndex >= 0 && foundPlaylist.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
+			m.playQueue = foundPlaylist.Tracks
+			m.playQueueTrackIndex = foundPlaylist.CurrentTrack
+			m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
+		}
+
+		m.isAddPlaylistActive = false
+	case search.CANCEL:
+		m.isAddPlaylistActive = false
+	case search.UPDATE_SUGGESTIONS:
+		inputVal := strings.ToLower(m.searchDialog.InputValue())
+		playlists := m.playlists.Items()
+		suggestions := make([]string, 0, len(playlists))
+		for _, pl := range playlists {
+			if !pl.Active || pl.Kind < playlist.USER || (len(inputVal) > 0 && !strings.Contains(strings.ToLower(pl.Name), inputVal)) {
+				continue
+			}
+			suggestions = append(suggestions, pl.Name)
+		}
+		m.searchDialog.SetSuggestions(suggestions)
+	}
+
+	return cmd
+}
+
+func (m *Model) renamePlaylistControl(msg input.Control) tea.Cmd {
+	var cmd tea.Cmd
+
+	if msg != input.APPLY {
+		return nil
+	}
+
+	newName := m.inputDialog.Value()
+	if len(strings.ReplaceAll(newName, " ", "")) == 0 {
+		return nil
+	}
+
+	selectedPlaylist := m.playlists.SelectedItem()
+	pl, err := m.client.RenamePlaylist(selectedPlaylist.Kind, newName)
+	if err != nil {
+		log.Print(log.LVL_ERROR, "failed to rename playlist [%s] to '%s': %s", selectedPlaylist.Name, newName, err)
+		m.tracker.ShowError("playlist rename")
+		return nil
+	}
+
+	selectedPlaylist.Name = pl.Title
+	selectedPlaylist.Revision = pl.Revision
+	m.playlists.SetItem(m.playlists.Index(), selectedPlaylist)
+
+	return cmd
+}
+
+func (m *Model) removeFromPlaylist(pl *playlist.Item, index int) tea.Cmd {
+	if index >= len(pl.Tracks) {
+		return nil
+	}
+
+	switch pl.Kind {
+	case playlist.NONE, playlist.MYWAVE, playlist.ALBUMS:
+		return nil
+	case playlist.LIKES:
+		selectedTrack := pl.Tracks[index]
+		return m.likeTrack(&selectedTrack, pl)
+	case playlist.LOCAL:
+		selectedTrack := pl.Tracks[index]
+		return m.removeCache(&selectedTrack)
+	default:
+		var cmd tea.Cmd
+
+		if len(pl.Tracks) < 2 {
+			err := m.client.RemovePlaylist(pl.Kind)
+			if err != nil {
+				log.Print(log.LVL_ERROR, "failed to remove playlist [%s]: %s", pl.Name, err)
+				m.tracker.ShowError("playlist remove")
+				return nil
+			}
+			if m.currentPlaylistIndex >= m.playlists.Index() {
+				m.currentPlaylistIndex -= 1
+			}
+			m.playlists.RemoveItem(m.playlists.Index())
+			if len(m.playlists.Items()) <= m.playlists.Index() {
+				m.playlists.Select(0)
+			}
+			m.displayPlaylist(m.playlists.SelectedItem())
+			return nil
+		}
+
+		newpl, err := m.client.RemoveFromPlaylist(pl.Kind, pl.Revision, index)
+		if err != nil {
+			log.Print(log.LVL_ERROR, "failed to remove track [%s] from playlist [%s]: %s", pl.Tracks[index].Id, pl.Name, err)
+			m.tracker.ShowError("playlist remove track")
+			return nil
+		}
+
+		pl.Revision = newpl.Revision
+		pl.Tracks = slices.Delete(pl.Tracks, index, index+1)
+		if index >= len(pl.Tracks) {
+			pl.SelectedTrack = len(pl.Tracks) - 1
+		} else {
+			pl.SelectedTrack = index
+		}
+		deleteCurrentTrack := index == pl.CurrentTrack
+		if deleteCurrentTrack {
+			pl.CurrentTrack = -1
+		} else if pl.CurrentTrack > index {
+			pl.CurrentTrack--
+		}
+		cmd = m.playlists.SetItem(m.playlists.Index(), pl)
+		m.displayPlaylist(pl)
+
+		if m.currentPlaylistIndex >= 0 && pl.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
+			m.playQueue = pl.Tracks
+			if deleteCurrentTrack {
+				m.playQueueTrackIndex -= 1
+			} else {
+				m.playQueueTrackIndex = pl.CurrentTrack
+			}
+		}
+
+		return cmd
+	}
+}
+
+func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
+	var cmds []tea.Cmd
+	if pl.Kind == playlist.NONE || pl.Kind == playlist.MYWAVE || len(pl.Tracks) == 0 {
+		return nil
+	}
+
+	currentTrackIndex := pl.CurrentTrack
+	selectedTrackIndex := pl.SelectedTrack
+	currentTrack := pl.Tracks[currentTrackIndex]
+	selectedTrack := pl.Tracks[selectedTrackIndex]
+
+	tracks := make([]api.Track, len(pl.Tracks))
+	trackList := make([]tracklist.Item, len(pl.Tracks))
+	perm := rand.Perm(len(tracks))
+
+	for i, v := range perm {
+		tracks[v] = pl.Tracks[i]
+		trackList[v] = tracklist.NewItem(&tracks[v])
+		if currentTrack.Id == tracks[v].Id {
+			currentTrackIndex = v
+		}
+		if selectedTrackIndex >= 0 && selectedTrack.Id == tracks[v].Id {
+			selectedTrackIndex = v
+		}
+	}
+
+	pl.Tracks = tracks
+	pl.SelectedTrack = selectedTrackIndex
+	pl.CurrentTrack = currentTrackIndex
+	cmds = append(cmds, m.playlists.SetItem(m.playlists.Index(), pl))
+	cmds = append(cmds, m.tracklist.SetItems(trackList))
+	m.tracklist.Select(selectedTrackIndex)
+
+	if m.currentPlaylistIndex >= 0 && pl.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
+		m.playQueue = pl.Tracks
+		m.playQueueTrackIndex = pl.CurrentTrack
+		m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
+	}
+
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) albumListActive() bool {
+	pl := m.playlists.SelectedItem()
+	return len(pl.Albums) > 0 && pl.SelectedAlbum < 0
+}
+
+func (m *Model) openAlbum(index int) tea.Cmd {
+	pl := m.playlists.SelectedItem()
+	if index >= len(pl.Albums) {
+		return nil
+	}
+
+	var albumTracks []api.Track
+	for _, volume := range pl.Albums[index].Volumes {
+		albumTracks = append(albumTracks, volume...)
+	}
+
+	var isCurrentAlbum bool
+	if m.currentPlaylistIndex > 0 {
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.IsSame(pl) && index == m.currentAlbumIndex {
+			isCurrentAlbum = true
+		}
+	}
+
+	pl.Tracks = albumTracks
+	pl.SelectedAlbum = index
+	if isCurrentAlbum {
+		pl.SelectedTrack = pl.CurrentTrack
+	} else {
+		pl.SelectedTrack = 0
+	}
+
+	m.displayPlaylist(pl)
+	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
+	return m.playlists.SetItem(m.playlists.Index(), pl)
+}
+
+func (m *Model) displayPlaylist(pl *playlist.Item) {
+	var itemlist []tracklist.Item
+	if len(pl.Albums) > 0 && pl.SelectedAlbum < 0 {
+		itemlist = make([]tracklist.Item, len(pl.Albums))
+		for i := range pl.Albums {
+			itemlist[i] = tracklist.NewAlbumItem(&pl.Albums[i])
+		}
+	} else {
+		itemlist = make([]tracklist.Item, len(pl.Tracks))
+		for i := range pl.Tracks {
+			itemlist[i] = tracklist.NewItem(&pl.Tracks[i])
+		}
+		if pl.Rotor && len(itemlist) > 0 {
+			itemlist[len(itemlist)-1].IsSuggestion = true
+		}
+	}
+
+	m.tracklist.SetItems(itemlist)
+	m.tracklist.Select(pl.SelectedTrack)
+
+	switch pl.Kind {
+	case playlist.MYWAVE:
+		m.tracklist.Title = "My wave"
+	case playlist.LIKES:
+		m.tracklist.Title = "Liked tracks"
+	case playlist.LOCAL:
+		m.tracklist.Title = "Cached tracks"
+	case playlist.ALBUMS:
+		if pl.SelectedAlbum >= 0 {
+			album := pl.Albums[pl.SelectedAlbum]
+			title := style.TrackTitleStyle.Render(album.Title)
+			artists := style.TrackArtistStyle.Render(" (" + helpers.ArtistList(album.Artists) + ")")
+			m.tracklist.Title = "Tracks from " + title + artists
+		} else {
+			if pl.Name == "albums" {
+				m.tracklist.Title = "Liked albums"
+			} else {
+				m.tracklist.Title = pl.Name
+			}
+		}
+	default:
+		title := style.TrackTitleStyle.Render(pl.Name)
+		m.tracklist.Title = "Tracks from " + title
+	}
+}
+
+func (m *Model) indicateCurrentTrackPlaying(playing bool) {
+	if m.currentPlaylistIndex < 0 {
+		return
+	}
+
+	currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+	if !currentPlaylist.IsSame(m.playlists.SelectedItem()) || currentPlaylist.CurrentTrack < 0 {
+		return
+	}
+
+	if len(currentPlaylist.Albums) > 0 && m.currentAlbumIndex != currentPlaylist.SelectedAlbum {
+		if currentPlaylist.SelectedAlbum < 0 {
+			albums := m.tracklist.Items()
+			if m.currentAlbumIndex > -1 && m.currentAlbumIndex < len(albums) {
+				album := albums[m.currentAlbumIndex]
+				album.IsPlaying = playing
+				m.tracklist.SetItem(m.currentAlbumIndex, album)
+			}
+		}
+		return
+	}
+
+	tracks := m.tracklist.Items()
+	if currentPlaylist.CurrentTrack < len(tracks) {
+		track := tracks[currentPlaylist.CurrentTrack]
+		track.IsPlaying = playing
+		m.tracklist.SetItem(currentPlaylist.CurrentTrack, track)
+	}
+}

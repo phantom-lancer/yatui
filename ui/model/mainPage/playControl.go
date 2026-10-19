@@ -1,0 +1,385 @@
+package mainpage
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"sync"
+
+	_ "image/jpeg"
+	_ "image/png"
+
+	"github.com/bogem/id3v2/v2"
+	"github.com/dece2183/yamusic-tui/api"
+	"github.com/dece2183/yamusic-tui/cache"
+	"github.com/dece2183/yamusic-tui/log"
+	"github.com/dece2183/yamusic-tui/stream"
+	"github.com/dece2183/yamusic-tui/ui/components/playlist"
+	"github.com/dece2183/yamusic-tui/ui/components/tracker"
+	"github.com/dece2183/yamusic-tui/ui/components/tracklist"
+	"github.com/dece2183/yamusic-tui/ui/helpers"
+)
+
+const (
+	_TRACK_DOWNLOAD_TRIES     = 3
+	_TRACK_FINISHED_THRESHOLD = 0.8
+)
+
+func (m *Model) feedbackOnTrack(batch string) *api.RotorFeedback {
+	currTrack := m.tracker.CurrentTrack()
+	if currTrack == nil {
+		return nil
+	}
+	var evType api.TrackEventType
+	if m.tracker.Progress() > _TRACK_FINISHED_THRESHOLD {
+		evType = api.EV_TRACK_FINISHED
+	} else {
+		evType = api.EV_TRACK_SKIPED
+	}
+	ev := api.NewTrackFeedbackEvent(evType, currTrack, m.tracker.Playtime().Seconds())
+	fb := api.NewFeedback(batch, ev)
+	log.Print(log.LVL_INFO, "feedback event sended: "+ev.Type+" track: "+currTrack.Title)
+	return fb
+}
+
+func (m *Model) rotateTracks(pl *playlist.Item) {
+	if !pl.Rotor {
+		return
+	}
+
+	suggestedTracks, err := m.client.RotorSessionTracks(pl.SessionId, []*api.RotorFeedback{}, pl.Tracks)
+	if err != nil {
+		log.Print(log.LVL_ERROR, "failed to obtain more rotor tracks: %s", err)
+		m.tracker.ShowError("next track obtain failure")
+		return
+	}
+
+	pl.SessionBatch = suggestedTracks.BatchId
+	pl.Tracks = append(pl.Tracks, suggestedTracks.Sequence[0].Track)
+	if m.playlists.Items()[m.currentPlaylistIndex].IsSame(pl) {
+		m.playQueue = pl.Tracks
+	}
+
+	if m.playlists.SelectedItem().IsSame(pl) {
+		tackItems := m.tracklist.Items()
+		lastTrack := tackItems[len(tackItems)-1]
+		lastTrack.IsSuggestion = false
+		m.tracklist.SetItem(len(tackItems)-1, lastTrack)
+		m.tracklist.InsertItem(-1, tracklist.Item{
+			Track:        &pl.Tracks[len(pl.Tracks)-1],
+			Artists:      helpers.ArtistList(suggestedTracks.Sequence[0].Track.Artists),
+			IsSuggestion: true,
+		})
+	}
+}
+
+func (m *Model) prevTrack() {
+	if len(m.playQueue) == 0 || m.playQueueTrackIndex == 0 {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	m.playQueueTrackIndex--
+	for m.playQueueTrackIndex > 0 && !m.playQueue[m.playQueueTrackIndex].Available {
+		m.playQueueTrackIndex--
+	}
+
+	if m.currentPlaylistIndex >= 0 {
+		m.indicateCurrentTrackPlaying(false)
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.Rotor && m.tracker.IsPlaying() {
+			go m.client.RotorSessionFeedback(currentPlaylist.SessionId, m.feedbackOnTrack(currentPlaylist.SessionBatch))
+		}
+
+		selectedPlaylist := m.playlists.SelectedItem()
+		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.tracklist.Index() == currentPlaylist.CurrentTrack
+		currentPlaylist.CurrentTrack = m.playQueueTrackIndex
+		if shouldFollow {
+			m.tracklist.Select(currentPlaylist.CurrentTrack)
+			currentPlaylist.SelectedTrack = currentPlaylist.CurrentTrack
+		}
+
+		m.playlists.SetItem(m.currentPlaylistIndex, currentPlaylist)
+	}
+
+	track := &m.playQueue[m.playQueueTrackIndex]
+	if !track.Available {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	m.playTrack(track)
+}
+
+func (m *Model) nextTrack() {
+	if len(m.playQueue) == 0 {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	m.playQueueTrackIndex++
+	for m.playQueueTrackIndex < len(m.playQueue)-1 && !m.playQueue[m.playQueueTrackIndex].Available {
+		m.playQueueTrackIndex++
+	}
+
+	if m.currentPlaylistIndex >= 0 {
+		m.indicateCurrentTrackPlaying(false)
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.Rotor && m.tracker.IsPlaying() {
+			go m.client.RotorSessionFeedback(currentPlaylist.SessionId, m.feedbackOnTrack(currentPlaylist.SessionBatch))
+		}
+
+		selectedPlaylist := m.playlists.SelectedItem()
+		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.tracklist.Index() == currentPlaylist.CurrentTrack
+		currentPlaylist.CurrentTrack = m.playQueueTrackIndex
+		if shouldFollow {
+			m.tracklist.Select(currentPlaylist.CurrentTrack)
+			currentPlaylist.SelectedTrack = currentPlaylist.CurrentTrack
+		}
+
+		if currentPlaylist.CurrentTrack == len(m.playQueue)-1 {
+			m.rotateTracks(currentPlaylist)
+		}
+
+		m.playlists.SetItem(m.currentPlaylistIndex, currentPlaylist)
+	}
+
+	if m.playQueueTrackIndex >= len(m.playQueue) {
+		m.playQueueTrackIndex = 0
+		m.Send(tracker.STOP)
+		return
+	}
+
+	track := &m.playQueue[m.playQueueTrackIndex]
+	if !track.Available {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	m.playTrack(track)
+}
+
+func (m *Model) playTrack(track *api.Track) {
+	m.tracker.Stop()
+
+	var (
+		wg sync.WaitGroup
+
+		coverType  string
+		coverBytes []byte
+
+		lyrics []api.LyricPair
+
+		trackReader    io.ReadCloser
+		trackSize      int64
+		trackFromCache bool
+		downloadErr    error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		coverPath := m.coverFilePath(track)
+		coverFile, ferr := os.OpenFile(coverPath, os.O_CREATE|os.O_RDWR, 0755)
+		if ferr != nil {
+			log.Print(log.LVL_WARNIGN, "unable to open cover file [%s]: %s", coverPath, ferr)
+			return
+		}
+		defer coverFile.Close()
+		stat, serr := coverFile.Stat()
+		if serr != nil || stat.Size() == 0 {
+			cType, derr := api.DownloadTrackCover(coverFile, track, 200)
+			if derr != nil {
+				log.Print(log.LVL_WARNIGN, "unable to download track [%s] cover: %s", track.Id, derr)
+				return
+			}
+			coverType = cType
+			coverFile.Sync()
+			s, _ := coverFile.Stat()
+			buf := make([]byte, s.Size())
+			coverFile.Seek(0, io.SeekStart)
+			coverFile.Read(buf)
+			coverBytes = buf
+		}
+	}()
+
+	if track.LyricsInfo.HasAvailableSyncLyrics {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lyr, lerr := m.client.TrackLyricsRequest(track.Id)
+			if lerr != nil {
+				log.Print(log.LVL_WARNIGN, "failed to obtain track [%s] lyrics: %s", track.Id, lerr)
+				m.tracker.ShowError("track lyrics")
+				return
+			}
+			lyrics = lyr
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tr, ts, cerr := cache.Read(track.Id)
+		if cerr == nil {
+			trackReader = tr
+			trackSize = ts
+			trackFromCache = true
+			return
+		}
+		var lastErr error
+		for i := 0; i < _TRACK_DOWNLOAD_TRIES; i++ {
+			trackInfos, ierr := m.client.TrackDownloadInfo(track.Id)
+			if ierr != nil {
+				log.Print(log.LVL_ERROR, "failed to obtain track [%s] info: %s", track.Id, ierr)
+				lastErr = ierr
+				continue
+			}
+			var bestBitrate int
+			var bestTrackInfo api.TrackDownloadInfo
+			for _, ti := range trackInfos {
+				if ti.BbitrateInKbps > bestBitrate {
+					bestBitrate = ti.BbitrateInKbps
+					bestTrackInfo = ti
+				}
+			}
+			tr2, ts2, derr := m.client.DownloadTrack(bestTrackInfo)
+			if derr != nil {
+				log.Print(log.LVL_ERROR, "failed to download track [%s]: %s", track.Id, derr)
+				lastErr = derr
+				continue
+			}
+			trackReader = tr2
+			trackSize = ts2
+			lastErr = nil
+			break
+		}
+		downloadErr = lastErr
+	}()
+
+	wg.Wait()
+
+	if downloadErr != nil && trackReader == nil {
+		m.tracker.ShowError("track download")
+		return
+	}
+
+	trackBuffer := stream.NewBufferedStream(trackReader, trackSize)
+	metadataFile, err := os.OpenFile(m.metadataFilePath(), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	if err == nil {
+		tag := id3v2.NewEmptyTag()
+		if trackFromCache {
+			tag.Reset(trackBuffer, id3v2.Options{Parse: true})
+		} else {
+			tag.SetDefaultEncoding(id3v2.EncodingUTF8)
+			tag.SetTitle(track.Title)
+			if len(track.Albums) != 0 {
+				tag.SetAlbum(track.Albums[0].Title)
+				tag.SetGenre(track.Albums[0].Genre)
+				tag.SetYear(fmt.Sprint(track.Albums[0].Year))
+			}
+			artists := make([]string, 0, len(track.Artists))
+			for i := range track.Artists {
+				artists = append(artists, track.Artists[i].Name)
+				tag.AddFrame(cache.TAG_ARTIST_ID, id3v2.UserDefinedTextFrame{
+					Encoding:    id3v2.EncodingUTF8,
+					Description: fmt.Sprint(i),
+					Value:       fmt.Sprint(track.Artists[i].Id),
+				})
+			}
+			tag.SetArtist(strings.Join(artists, ","))
+			tag.AddAttachedPicture(id3v2.PictureFrame{
+				MimeType:    coverType,
+				PictureType: id3v2.PTFrontCover,
+				Encoding:    id3v2.EncodingUTF16BE,
+				Picture:     coverBytes,
+			})
+			tag.AddTextFrame(cache.TAG_TRACK_ID, id3v2.EncodingUTF8, fmt.Sprint(track.Id))
+			tag.AddTextFrame(cache.TAG_DURATION, id3v2.EncodingUTF8, fmt.Sprint(track.DurationMs))
+		}
+		tag.WriteTo(metadataFile)
+		io.CopyN(metadataFile, trackBuffer, 32*1024)
+		trackBuffer.Seek(0, io.SeekStart)
+		metadataFile.Close()
+	} else {
+		log.Print(log.LVL_WARNIGN, "failed to create metadata file: %s", err)
+	}
+
+	if m.currentPlaylistIndex >= 0 {
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.Rotor {
+			ev := api.NewTrackFeedbackEvent(api.EV_TRACK_STARTED, track, 0)
+			go m.client.RotorSessionFeedback(currentPlaylist.SessionId, api.NewFeedback(currentPlaylist.SessionBatch, ev))
+			log.Print(log.LVL_INFO, "feedback event sended: "+ev.Type+" track: "+track.Title)
+		}
+	}
+
+	m.tracker.StartTrack(track, trackBuffer, lyrics)
+	m.indicateCurrentTrackPlaying(true)
+	m.mediaHandler.OnPlayback()
+
+	if m.client != nil {
+		go m.client.PlayTrack(track, trackFromCache)
+	}
+}
+
+func (m *Model) playSelectedPlaylist(trackIndex int) {
+	selectedPlaylist := m.playlists.SelectedItem()
+	if len(selectedPlaylist.Tracks) == 0 || selectedPlaylist.SelectedTrack < 0 || selectedPlaylist.SelectedTrack >= len(selectedPlaylist.Tracks) {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	trackToPlay := &selectedPlaylist.Tracks[selectedPlaylist.SelectedTrack]
+
+	if m.currentPlaylistIndex >= 0 {
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.IsSame(selectedPlaylist) && selectedPlaylist.CurrentTrack == trackIndex && m.tracker.CurrentTrack().Id == trackToPlay.Id {
+			if m.tracker.IsPlaying() {
+				m.tracker.Pause()
+				return
+			} else {
+				m.tracker.Play()
+				return
+			}
+		}
+		if currentPlaylist.Rotor {
+			if m.tracker.IsPlaying() {
+				go m.client.RotorSessionFeedback(currentPlaylist.SessionId, m.feedbackOnTrack(currentPlaylist.SessionBatch))
+			}
+			if !currentPlaylist.IsSame(selectedPlaylist) {
+				ev := api.NewRadioFeedbackEvent(api.EV_RADIO_FINISHED)
+				go m.client.RotorSessionFeedback(currentPlaylist.SessionId, api.NewFeedback(currentPlaylist.SessionBatch, ev))
+				log.Print(log.LVL_INFO, "feedback event sended: "+ev.Type)
+			}
+		}
+	}
+
+	m.indicateCurrentTrackPlaying(false)
+
+	if selectedPlaylist.Rotor {
+		if m.currentPlaylistIndex != m.playlists.Index() {
+			ev := api.NewRadioFeedbackEvent(api.EV_RADIO_STARTED)
+			go m.client.RotorSessionFeedback(selectedPlaylist.SessionId, api.NewFeedback("", ev))
+			log.Print(log.LVL_INFO, "feedback event sended: "+ev.Type)
+			m.currentPlaylistIndex = m.playlists.Index()
+		}
+		if trackIndex == len(selectedPlaylist.Tracks)-1 {
+			m.rotateTracks(selectedPlaylist)
+		}
+	}
+
+	if len(selectedPlaylist.Albums) > 0 && selectedPlaylist.SelectedAlbum >= 0 {
+		m.currentAlbumIndex = selectedPlaylist.SelectedAlbum
+	} else {
+		m.currentAlbumIndex = -1
+	}
+
+	selectedPlaylist.CurrentTrack = trackIndex
+	m.currentPlaylistIndex = m.playlists.Index()
+	m.playlists.SetItem(m.currentPlaylistIndex, selectedPlaylist)
+	m.playQueue = selectedPlaylist.Tracks
+	m.playQueueTrackIndex = trackIndex
+	m.playTrack(trackToPlay)
+}

@@ -1,0 +1,76 @@
+package playlist
+
+import "github.com/dece2183/yamusic-tui/api"
+
+type Item struct {
+	Uid uint64
+
+	Name         string
+	Kind         uint64
+	Revision     int
+	StationId    api.StationId
+	SessionBatch string
+	SessionId    string
+	Active       bool
+	Subitem      bool
+	Rotor        bool
+
+	Tracks        []api.Track
+	CurrentTrack  int
+	SelectedTrack int
+
+	Albums        []api.Album
+	SelectedAlbum int
+}
+
+func (i *Item) FilterValue() string {
+	return i.Name
+}
+
+func (i *Item) IsSame(other *Item) bool {
+	return i.Kind == other.Kind && i.Name == other.Name
+}
+
+func (pl *Item) AddTrack(track *api.Track) {
+	pl.Tracks = append([]api.Track{*track}, pl.Tracks...)
+	pl.SelectedTrack++
+	if pl.CurrentTrack < len(pl.Tracks)-1 {
+		pl.CurrentTrack++
+	}
+}
+
+func (pl *Item) AddTrackToEnd(track *api.Track) {
+	pl.Tracks = append(pl.Tracks, *track)
+}
+
+func (pl *Item) RemoveTrack(trackId string) int {
+	for i, ltrack := range pl.Tracks {
+		if ltrack.Id == trackId {
+			if i+1 < len(pl.Tracks) {
+				pl.Tracks = append(pl.Tracks[:i], pl.Tracks[i+1:]...)
+			} else {
+				pl.Tracks = pl.Tracks[:i]
+			}
+
+			if len(pl.Tracks) == 0 {
+				pl.SelectedTrack = 0
+				pl.CurrentTrack = 0
+			} else {
+				if pl.SelectedTrack > i {
+					pl.SelectedTrack--
+				} else if pl.SelectedTrack >= len(pl.Tracks) {
+					pl.SelectedTrack = len(pl.Tracks) - 1
+				}
+
+				if pl.CurrentTrack == i {
+					pl.CurrentTrack = len(pl.Tracks)
+				} else if pl.CurrentTrack > i {
+					pl.CurrentTrack--
+				}
+			}
+
+			return i
+		}
+	}
+	return -1
+}
