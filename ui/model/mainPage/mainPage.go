@@ -67,6 +67,9 @@ type Model struct {
 
 	cache         *cacheModel
 	isCacheActive bool
+
+	// scrobbleGen invalidates the pending Last.fm scrobble
+	scrobbleGen int64
 }
 
 // mainpage.Model constructor.
@@ -140,6 +143,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// clicks must not reach the components behind an open dialog
 	if _, isMouse := message.(tea.MouseMsg); isMouse && (m.isSettingsActive || m.isQueueActive || m.isCacheActive) {
+		return m, nil
+	}
+
+	// async Last.fm auth results
+	if m.handleLastfmMsg(message) {
 		return m, nil
 	}
 
@@ -395,6 +403,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case tracker.PLAY, tracker.PAUSE:
 			m.mediaHandler.OnPlayPause()
 		case tracker.STOP:
+			m.scrobbleCancel()
 			m.mediaHandler.OnEnded()
 		case tracker.REWIND:
 			m.mediaHandler.OnSeek(m.tracker.Position())

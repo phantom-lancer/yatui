@@ -133,6 +133,18 @@ type Normalization struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// LastFM holds the Last.fm credentials. The api key and secret are created by
+// the user at https://www.last.fm/api/account/create, the session key comes
+// from the web auth flow in the settings screen.
+type LastFM struct {
+	Enabled      bool   `yaml:"enabled"`
+	ApiKey       string `yaml:"api-key"`
+	ApiSecret    string `yaml:"api-secret"`
+	SessionKey   string `yaml:"session-key"`
+	Username     string `yaml:"username"`
+	PendingToken string `yaml:"pending-token"`
+}
+
 type Search struct {
 	Artists   bool `yaml:"artists"`
 	Popular   bool `yaml:"popular"`
@@ -154,6 +166,7 @@ type Config struct {
 	SSLCerts       []string       `yaml:"ssl-certs"`
 	Search         *Search        `yaml:"search"`
 	Normalization  *Normalization `yaml:"normalization"`
+	LastFM         *LastFM        `yaml:"lastfm"`
 	Controls       *Controls      `yaml:"controls"`
 	Style          *Style         `yaml:"style"`
 }
@@ -175,6 +188,9 @@ var defaultConfig = Config{
 	},
 	Normalization: &Normalization{
 		Enabled: true,
+	},
+	LastFM: &LastFM{
+		Enabled: false,
 	},
 	Controls: &Controls{
 		Quit:                     NewKey("ctrl+q,ctrl+c"),

@@ -78,6 +78,11 @@ func load() (Config, error) {
 		newConfig.Normalization = &normalization
 	}
 
+	if newConfig.LastFM == nil {
+		lastfm := *defaultConfig.LastFM
+		newConfig.LastFM = &lastfm
+	}
+
 	if newConfig.Controls == nil {
 		controls := *defaultConfig.Controls
 		newConfig.Controls = &controls

@@ -327,6 +327,7 @@ func (m *Model) playTrack(track *api.Track) {
 
 	m.tracker.SetNextTrack(m.nextTrackTitle())
 	m.tracker.StartTrack(track, trackBuffer, lyrics)
+	m.scrobbleStart(track)
 	m.indicateCurrentTrackPlaying(true)
 	m.mediaHandler.OnPlayback()
 

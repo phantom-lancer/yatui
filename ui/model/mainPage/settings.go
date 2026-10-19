@@ -29,7 +29,7 @@ type settingItem struct {
 	label string
 	kind  settingKind
 	value func() string
-	apply func(dir int)
+	apply func(dir int) tea.Cmd
 }
 
 type settingsModel struct {
@@ -58,14 +58,14 @@ func (s *settingsModel) down() {
 	}
 }
 
-func (s *settingsModel) change(dir int) {
+func (s *settingsModel) change(dir int) tea.Cmd {
 	if s.index < 0 || s.index >= len(s.items) {
-		return
+		return nil
 	}
 
 	item := s.items[s.index]
 	if item.apply == nil {
-		return
+		return nil
 	}
 
 	// booleans and choices react to any of the left/right/enter keys
@@ -73,7 +73,7 @@ func (s *settingsModel) change(dir int) {
 		dir = 1
 	}
 
-	item.apply(dir)
+	return item.apply(dir)
 }
 
 func (s *settingsModel) view() string {
@@ -185,6 +185,7 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 	controls := config.Current.Controls
 	keypress := msg.String()
 
+	var cmd tea.Cmd
 	switch {
 	case keypress == "esc", controls.Settings.Contains(keypress):
 		m.isSettingsActive = false
@@ -194,14 +195,14 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 	case keypress == "down":
 		m.settings.down()
 	case keypress == "left":
-		m.settings.change(-1)
+		cmd = m.settings.change(-1)
 	case keypress == "right":
-		m.settings.change(1)
+		cmd = m.settings.change(1)
 	case keypress == "enter", keypress == " ":
-		m.settings.change(0)
+		cmd = m.settings.change(0)
 	}
 
-	return tea.ClearScreen, true
+	return tea.Batch(tea.ClearScreen, cmd), true
 }
 
 // buildSettings describes every setting the dialog can change. Values are
@@ -215,12 +216,13 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return fmt.Sprintf("%d%%", int(config.Current.Volume*100+0.5))
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				step := config.Current.VolumeStep
 				if step <= 0 {
 					step = 0.05
 				}
 				m.tracker.SetVolumeTo(config.Current.Volume + float64(dir)*step)
+				return nil
 			},
 		},
 		{
@@ -229,7 +231,7 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return fmt.Sprintf("%d%%", int(config.Current.VolumeStep*100+0.5))
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				step := config.Current.VolumeStep + float64(dir)*0.01
 				if step < 0.01 {
 					step = 0.01
@@ -238,6 +240,7 @@ func (m *Model) buildSettings() []settingItem {
 				}
 				config.Current.VolumeStep = step
 				m.saveConfig()
+				return nil
 			},
 		},
 		{
@@ -246,7 +249,7 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return fmt.Sprintf("%d (после перезапуска)", int(config.Current.BufferSize))
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				buffer := config.Current.BufferSize + float64(dir)*10
 				if buffer < 40 {
 					buffer = 40
@@ -255,6 +258,7 @@ func (m *Model) buildSettings() []settingItem {
 				}
 				config.Current.BufferSize = buffer
 				m.saveConfig()
+				return nil
 			},
 		},
 		{
@@ -263,7 +267,7 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return fmt.Sprintf("%d", int(config.Current.RewindDuration))
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				seconds := config.Current.RewindDuration + float64(dir)
 				if seconds < 1 {
 					seconds = 1
@@ -271,6 +275,7 @@ func (m *Model) buildSettings() []settingItem {
 					seconds = 30
 				}
 				m.tracker.SetRewind(time.Duration(seconds) * time.Second)
+				return nil
 			},
 		},
 		{
@@ -279,13 +284,14 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return onOff(config.Current.Normalization != nil && config.Current.Normalization.Enabled)
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				if config.Current.Normalization == nil {
 					config.Current.Normalization = &config.Normalization{}
 				}
 				config.Current.Normalization.Enabled = !config.Current.Normalization.Enabled
 				m.saveConfig()
 				m.showToast("Нормализация: " + onOff(config.Current.Normalization.Enabled))
+				return nil
 			},
 		},
 		{
@@ -297,8 +303,9 @@ func (m *Model) buildSettings() []settingItem {
 				}
 				return config.Current.Style.Theme
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				m.cycleTheme()
+				return nil
 			},
 		},
 		{
@@ -307,8 +314,9 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return onOff(m.tracker.Lyrics())
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				m.tracker.SetLirycs(!m.tracker.Lyrics())
+				return nil
 			},
 		},
 		{
@@ -324,10 +332,21 @@ func (m *Model) buildSettings() []settingItem {
 					return "выкл"
 				}
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				config.Current.CacheTracks = (config.Current.CacheTracks + 1) % 3
 				m.saveConfig()
 				m.showToast("Кэш: " + cacheName(config.Current.CacheTracks) + " (после перезапуска)")
+				return nil
+			},
+		},
+		{
+			label: "Last.fm",
+			kind:  settingChoice,
+			value: func() string {
+				return m.lastfmStatus()
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.lastfmSetupCmd()
 			},
 		},
 		{
@@ -336,9 +355,10 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return onOff(config.Current.SuppressErrors)
 			},
-			apply: func(dir int) {
+			apply: func(dir int) tea.Cmd {
 				config.Current.SuppressErrors = !config.Current.SuppressErrors
 				m.saveConfig()
+				return nil
 			},
 		},
 		{

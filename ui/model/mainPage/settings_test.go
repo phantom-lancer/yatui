@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -34,8 +35,8 @@ func TestSettingsChangeBoolsAndChoices(t *testing.T) {
 	var got []int
 
 	s := &settingsModel{items: []settingItem{
-		{label: "bool", kind: settingBool, apply: func(dir int) { got = append(got, dir) }},
-		{label: "number", kind: settingNumber, apply: func(dir int) { got = append(got, dir) }},
+		{label: "bool", kind: settingBool, apply: func(dir int) tea.Cmd { got = append(got, dir); return nil }},
+		{label: "number", kind: settingNumber, apply: func(dir int) tea.Cmd { got = append(got, dir); return nil }},
 		{label: "info", kind: settingInfo},
 	}}
 
