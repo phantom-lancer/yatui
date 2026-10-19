@@ -315,6 +315,7 @@ func (m *Model) playTrack(track *api.Track) {
 		}
 	}
 
+	m.tracker.SetNextTrack(m.nextTrackTitle())
 	m.tracker.StartTrack(track, trackBuffer, lyrics)
 	m.indicateCurrentTrackPlaying(true)
 	m.mediaHandler.OnPlayback()
@@ -322,6 +323,19 @@ func (m *Model) playTrack(track *api.Track) {
 	if m.client != nil {
 		go m.client.PlayTrack(track, trackFromCache)
 	}
+}
+
+// nextTrackTitle returns a human readable name of the track that will be
+// played next, or an empty string when the queue is over.
+func (m *Model) nextTrackTitle() string {
+	for i := m.playQueueTrackIndex + 1; i < len(m.playQueue); i++ {
+		track := &m.playQueue[i]
+		if !track.Available {
+			continue
+		}
+		return helpers.ArtistList(track.Artists) + " — " + track.Title
+	}
+	return ""
 }
 
 func (m *Model) playSelectedPlaylist(trackIndex int) {

@@ -55,6 +55,8 @@ type Model struct {
 	mouse       mouseLayout
 	hotkeys     *hotkeys.Tracker
 	contextMenu *contextMenu
+
+	toasts []toast
 }
 
 // mainpage.Model constructor.
@@ -172,6 +174,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		return m, model.Cmd(playlist.CURSOR_UP)
 
+	case toastExpiredMsg:
+		m.expireToasts()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, tea.ClearScreen
@@ -202,6 +208,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case m.isRenamePlaylistActive:
 			m.inputDialog, cmd = m.inputDialog.Update(message)
 			cmds = append(cmds, cmd)
+		case controls.Theme.Contains(keypress):
+			m.cycleTheme()
+			cmds = append(cmds, tea.ClearScreen)
 		case controls.Reload.Contains(keypress):
 			m.isLoading = true
 			cmd = m.playlists.Reset()
@@ -311,6 +320,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			link := api.ShareTrackLink(m.tracklist.SelectedItem().Track)
 			if link != "" {
 				m.clipboard.CopyText(link)
+				m.showToast("Ссылка скопирована")
 			}
 		case tracklist.BACK:
 			selectedPlaylist := m.playlists.SelectedItem()
@@ -402,7 +412,8 @@ func (m *Model) View() string {
 	} else {
 		view = m.viewBody()
 	}
-	return drawVersion(view)
+	view = drawVersion(view)
+	return m.drawToasts(view)
 }
 
 func (m *Model) viewBody() string {

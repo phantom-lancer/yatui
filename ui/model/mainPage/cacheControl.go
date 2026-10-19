@@ -49,6 +49,8 @@ func (m *Model) cacheCurrentTrack() tea.Cmd {
 		m.displayPlaylist(cachePlaylist)
 	}
 
+	m.showToast("В кэш: " + currentTrack.Title)
+
 	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 	return cmd
 }
@@ -75,6 +77,8 @@ func (m *Model) removeCache(track *api.Track) tea.Cmd {
 	if m.playlists.SelectedItem().Kind == playlist.LOCAL {
 		m.displayPlaylist(cachePlaylist)
 	}
+
+	m.showToast("Удалено из кэша: " + track.Title)
 
 	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 	return cmd

@@ -74,6 +74,11 @@ func New(p *tea.Program, title string) *Model {
 	return m
 }
 
+// RefreshStyle re-applies the colors after a theme switch.
+func (m *Model) RefreshStyle() {
+	m.list.Styles.Title = m.list.Styles.Title.Foreground(style.AccentColor).UnsetBackground().Padding(0)
+}
+
 func (m *Model) Init() tea.Cmd {
 	return nil
 }

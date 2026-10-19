@@ -73,6 +73,11 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	return m
 }
 
+// RefreshStyle re-applies the colors after a theme switch.
+func (m *Model) RefreshStyle() {
+	m.list.Styles.Title = style.TrackListTitleStyle
+}
+
 func (m *Model) Init() tea.Cmd {
 	return nil
 }

@@ -87,6 +87,11 @@ var (
 	TrackListActiveStyle lipgloss.Style
 )
 
+var (
+	ToastStyle       lipgloss.Style
+	ToastAccentStyle lipgloss.Style
+)
+
 func Apply(style *config.Style) {
 	VolumeIndicatorWidth = style.VolumeIndicatorWidth
 	VolumeIndicatorAutohide = style.VolumeIndicatorAutohide
@@ -206,4 +211,12 @@ func Apply(style *config.Style) {
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(AccentColor)
+
+	ToastStyle = lipgloss.NewStyle().
+		Foreground(ActiveTextColor).
+		Background(PlaylistSelectionColor).
+		Padding(0, 1)
+	ToastAccentStyle = lipgloss.NewStyle().
+		Foreground(AccentColor).
+		Background(PlaylistSelectionColor)
 }

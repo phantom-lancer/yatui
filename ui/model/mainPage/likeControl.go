@@ -179,6 +179,12 @@ func (m *Model) likeTrack(track *api.Track, pl *playlist.Item) tea.Cmd {
 		m.displayPlaylist(likedPlaylist)
 	}
 
+	if evType == api.EV_TRACK_LIKED {
+		m.showToast("В лайки: " + track.Title)
+	} else {
+		m.showToast("Убрано из лайков: " + track.Title)
+	}
+
 	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 	return cmd
 }

@@ -107,6 +107,14 @@ func load() (Config, error) {
 		if newConfig.Style.SidePanelWidth == 0 {
 			newConfig.Style.SidePanelWidth = defaultConfig.Style.SidePanelWidth
 		}
+		// a named theme overrides the colors from the config file
+		if newConfig.Style.Theme != "" {
+			if colors, ok := ThemeColors(newConfig.Style.Theme); ok {
+				newConfig.Style.Colors = &colors
+			} else {
+				newConfig.Style.Theme = ""
+			}
+		}
 	}
 
 	return newConfig, nil

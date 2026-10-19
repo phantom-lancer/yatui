@@ -95,6 +95,7 @@ func (m *Model) addPlaylistControl(msg search.Control) tea.Cmd {
 			m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 		}
 
+		m.showToast("Добавлено в «" + foundPlaylist.Name + "»: " + selectedTrack.Title)
 		m.isAddPlaylistActive = false
 	case search.CANCEL:
 		m.isAddPlaylistActive = false

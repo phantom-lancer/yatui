@@ -72,6 +72,7 @@ type Colors struct {
 }
 
 type Style struct {
+	Theme                   string  `yaml:"theme"`
 	VolumeIndicatorWidth    int     `yaml:"volume-indicator-width"`
 	VolumeIndicatorAutohide int     `yaml:"volume-indicator-autohide-at"`
 	SidePanelWidth          int     `yaml:"side-panel-width"`
@@ -90,6 +91,7 @@ type Controls struct {
 	CursorDown  *Key `yaml:"cursor-down"`
 	Reload      *Key `yaml:"reload"`
 	ShowAllKeys *Key `yaml:"show-all-kyes"`
+	Theme       *Key `yaml:"theme"`
 	// Playlists control
 	PlaylistsUp     *Key `yaml:"playlists-up"`
 	PlaylistsDown   *Key `yaml:"playlists-down"`
@@ -179,6 +181,7 @@ var defaultConfig = Config{
 		CursorDown:               NewKey("down"),
 		Reload:                   NewKey("ctrl+\\"),
 		ShowAllKeys:              NewKey("?"),
+		Theme:                    NewKey("ctrl+y"),
 		PlaylistsUp:              NewKey("ctrl+up"),
 		PlaylistsDown:            NewKey("ctrl+down"),
 		PlaylistsRename:          NewKey("ctrl+r"),

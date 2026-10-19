@@ -80,6 +80,9 @@ type Model struct {
 	likesMap    *map[string]bool
 	dislikesMap *map[string]bool
 
+	// nextTitle is the track that will be played after the current one.
+	nextTitle string
+
 	regions *Regions
 }
 
@@ -131,6 +134,35 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 
 	go m.volumeFader()
 	return m
+}
+
+// RefreshStyle re-reads the colors from the style package. The progress and
+// volume bars keep their colors inside the component, so a theme switch has
+// to push them again.
+func (m *Model) RefreshStyle() {
+	m.progress.FullColor = string(style.AccentColor)
+	m.progress.EmptyColor = string(style.BackgroundColor)
+	m.volumeBar.FullColor = string(style.AccentColor)
+	m.volumeBar.EmptyColor = string(style.BackgroundColor)
+}
+
+// SetNextTrack sets the "next:" line under the current track. An empty title
+// hides the line.
+func (m *Model) SetNextTrack(title string) {
+	m.nextTitle = title
+}
+
+// nextTrackLine renders the upcoming track hint, truncated to maxLen cells.
+func (m *Model) nextTrackLine(maxLen int) string {
+	if m.nextTitle == "" || maxLen <= 0 {
+		return ""
+	}
+
+	line := style.TrackVersionStyle.Render("Далее: " + m.nextTitle)
+	if lipgloss.Width(line) > maxLen {
+		line = lipgloss.NewStyle().MaxWidth(maxLen-1).Render(line) + "…"
+	}
+	return line
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -310,7 +342,11 @@ func (m *Model) view() (string, *Regions) {
 
 		trackTitle = lipgloss.NewStyle().Width(m.width - lipgloss.Width(trackAddInfo) - 4).Render(trackTitle)
 		trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackAddInfo)
-		trackTitle = lipgloss.JoinVertical(lipgloss.Left, trackTitle, trackArtist, "")
+
+		// the "next" line is always reserved, so the player height (and the
+		// track list above it) does not jump when the queue ends
+		rows := []string{trackTitle, trackArtist, m.nextTrackLine(maxLen), ""}
+		trackTitle = lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 		// like / dislike indicator regions on the track title row
 		addInfoX := m.width - addInfoLen - 4
