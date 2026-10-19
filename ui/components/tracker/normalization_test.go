@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"math"
 	"testing"
 
 	"github.com/dece2183/yamusic-tui/api"
@@ -139,5 +140,39 @@ func TestNormalizationClampsInvalidGain(t *testing.T) {
 	n, _ := newNormalization(track)
 	if n.linear > 10 {
 		t.Fatalf("gain was not clamped: %f", n.linear)
+	}
+}
+
+func TestNormalizationPeakGuard(t *testing.T) {
+	// a track measured on a quiet head asks for a boost, but the loud part of
+	// it arrives later: the guard has to lower the gain instead of clipping
+	n := newGainNormalization(12, 0.1)
+	before := n.gainDB()
+
+	buf := pcmBuffer(32767, -32767, 32767, -32767)
+	if guarded := n.apply(buf); !guarded {
+		t.Fatal("the peak guard did not react to a clipping buffer")
+	}
+
+	for i, sample := range readSamples(buf) {
+		if sample == math.MaxInt16 || sample == math.MinInt16 {
+			t.Fatalf("sample %d was clipped: %d", i, sample)
+		}
+	}
+	if after := n.gainDB(); after >= before {
+		t.Fatalf("the gain was not lowered: %.2f -> %.2f", before, after)
+	}
+
+	// and a quiet buffer must not be raised back up
+	guarded := n.gainDB()
+	quiet := pcmBuffer(1000, -1000)
+	n.apply(quiet)
+	if again := n.gainDB(); again != guarded {
+		t.Fatalf("the guard is not sticky: %.2f -> %.2f", guarded, again)
+	}
+	for _, sample := range readSamples(quiet) {
+		if math.Abs(float64(sample)) > 1000.0001 {
+			t.Fatalf("the quiet buffer was not left below the guarded gain: %d", sample)
+		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/x/ansi"
 
@@ -29,7 +28,7 @@ func lineOf(t *testing.T, view string, y int) string {
 func newTestModel(t *testing.T, names []string, width, height int) *Model {
 	t.Helper()
 
-	m := &Model{help: help.New(), helpMap: newHelpMap()}
+	m := &Model{helpMap: newHelpMap()}
 	items := make([]list.Item, len(names))
 	for i, name := range names {
 		items[i] = &Item{Name: name, Kind: USER, Active: true}

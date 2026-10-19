@@ -112,8 +112,7 @@ func (m *Model) View() string {
 		m.helpMap.HasArtist = false
 	}
 
-	helpView := m.help.View(m.helpMap)
-	m.list.SetHeight(m.height - lipgloss.Height(helpView) - 4)
+	m.list.SetHeight(m.height - 4)
 
 	m.resetLayout()
 	listView := m.list.View()
@@ -123,7 +122,7 @@ func (m *Model) View() string {
 	}
 
 	m.buildLayout()
-	return style.TrackBoxStyle.Width(m.width).Render(lipgloss.JoinVertical(lipgloss.Left, listView, "", helpView))
+	return style.TrackBoxStyle.Width(m.width).Render(lipgloss.JoinVertical(lipgloss.Left, listView, ""))
 }
 
 func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
@@ -141,8 +140,6 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 		switch {
-		case controls.ShowAllKeys.Contains(keypress):
-			m.help.ShowAll = !m.help.ShowAll
 		case controls.Apply.Contains(keypress):
 			cmds = append(cmds, model.Cmd(PLAY))
 		case controls.CursorUp.Contains(keypress):

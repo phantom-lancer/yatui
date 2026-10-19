@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"math"
+	"math/cmplx"
 	"testing"
 )
 
@@ -21,15 +22,102 @@ func sineWave(seconds int, freq, amplitude float64) []byte {
 	return buf
 }
 
-func TestLoudnessMeterMeasuresTone(t *testing.T) {
-	meter := newLoudnessMeter(_TEST_SAMPLE_RATE)
-	meter.add(sineWave(5, 1000, 0.5))
+// kWeightingGain returns the gain the K-weighting gives to a sine of the given
+// frequency: |H(e^jw)| of the two biquads the meter is built of.
+func kWeightingGain(sampleRate int, freq float64) float64 {
+	w := 2 * math.Pi * freq / float64(sampleRate)
+	z1, z2 := complex(math.Cos(-w), math.Sin(-w)), complex(math.Cos(-2*w), math.Sin(-2*w))
 
-	// a 1 kHz tone at half scale is about -9 LUFS: -0.691 + 10*log10(0.125)
-	// plus the high shelf of the weighting
-	loudness := meter.integratedLoudness()
-	if loudness < -11 || loudness > -8 {
-		t.Fatalf("unexpected loudness of a 1 kHz tone: %.2f LUFS", loudness)
+	filter := newKWeighting(sampleRate)
+	response := func(b biquad) complex128 {
+		numerator := complex(b.b0, 0) + complex(b.b1, 0)*z1 + complex(b.b2, 0)*z2
+		denominator := complex(1, 0) + complex(b.a1, 0)*z1 + complex(b.a2, 0)*z2
+		return numerator / denominator
+	}
+
+	h := response(filter.pre) * response(filter.rlb)
+	return 20 * math.Log10(cmplx.Abs(h))
+}
+
+// loudnessOfTone is what the meter has to show for a stereo sine tone of the
+// given amplitude: the energy of the two channels plus the weighting.
+func loudnessOfTone(sampleRate int, freq, amplitude float64) float64 {
+	amplitude = amplitude * 32767 / 32768
+	// the mean square of a sine is half of its squared amplitude, summed over
+	// the two channels
+	energy := 2 * (amplitude * amplitude / 2)
+	return _LOUDNESS_OFFSET + 10*math.Log10(energy) + kWeightingGain(sampleRate, freq)
+}
+
+func TestKWeightingMatchesTheRecommendation(t *testing.T) {
+	// the coefficients BS.1770 lists for 48 kHz, the ones the reference
+	// implementations are built around
+	reference := kWeighting{
+		pre: biquad{
+			b0: 1.53512485958697, b1: -2.69169618940638, b2: 1.19839281085285,
+			a1: -1.69065929318241, a2: 0.73248077421585,
+		},
+		rlb: biquad{
+			b0: 1.0, b1: -2.0, b2: 1.0,
+			a1: -1.99004745483398, a2: 0.99007225036621,
+		},
+	}
+
+	got := newKWeighting(48000)
+	for _, pair := range [][2]float64{
+		{got.pre.b0, reference.pre.b0}, {got.pre.b1, reference.pre.b1},
+		{got.pre.b2, reference.pre.b2}, {got.pre.a1, reference.pre.a1},
+		{got.pre.a2, reference.pre.a2}, {got.rlb.b0, reference.rlb.b0},
+		{got.rlb.b1, reference.rlb.b1}, {got.rlb.b2, reference.rlb.b2},
+		{got.rlb.a1, reference.rlb.a1}, {got.rlb.a2, reference.rlb.a2},
+	} {
+		if diff := math.Abs(pair[0] - pair[1]); diff > 1e-9 {
+			t.Fatalf("the filter designed for 48 kHz differs from the reference: %.2e (%f vs %f)",
+				diff, pair[0], pair[1])
+		}
+	}
+
+	// and the design has to be rate dependent: filtering a 44.1 kHz stream
+	// with the 48 kHz coefficients weights it differently
+	if diff := math.Abs(newKWeighting(44100).pre.b0 - newKWeighting(48000).pre.b0); diff < 1e-6 {
+		t.Fatalf("the weighting does not depend on the sample rate: %.4e", diff)
+	}
+	if diff := math.Abs(newKWeighting(44100).rlb.a1 - newKWeighting(48000).rlb.a1); diff < 1e-6 {
+		t.Fatalf("the weighting does not depend on the sample rate: %.4e", diff)
+	}
+}
+
+func TestLoudnessMeterMeasuresTone(t *testing.T) {
+	const (
+		freq      = 1000.0
+		amplitude = 0.5
+	)
+
+	meter := newLoudnessMeter(_TEST_SAMPLE_RATE)
+	meter.add(sineWave(5, freq, amplitude))
+
+	want := loudnessOfTone(_TEST_SAMPLE_RATE, freq, amplitude)
+	if diff := math.Abs(meter.integratedLoudness() - want); diff > 0.1 {
+		t.Fatalf("a 1 kHz tone measured %.2f LUFS, want %.2f", meter.integratedLoudness(), want)
+	}
+}
+
+func TestLoudnessMeterSumsTheChannels(t *testing.T) {
+	// BS.1770 measures the energy of all channels summed, not averaged: the
+	// same tone in both channels is 3 dB louder than it is in one of them
+	stereo := newLoudnessMeter(_TEST_SAMPLE_RATE)
+	stereo.add(sineWave(5, 1000, 0.5))
+
+	mono := newLoudnessMeter(_TEST_SAMPLE_RATE)
+	silentRight := sineWave(5, 1000, 0.5)
+	for i := 0; i+3 < len(silentRight); i += 4 {
+		silentRight[i+2], silentRight[i+3] = 0, 0
+	}
+	mono.add(silentRight)
+
+	diff := stereo.integratedLoudness() - mono.integratedLoudness()
+	if math.Abs(diff-3.0103) > 0.05 {
+		t.Fatalf("the channels are not summed: a stereo tone is %.3f dB louder than a mono one", diff)
 	}
 }
 
@@ -127,12 +215,12 @@ func TestLoudnessMeterSplitsSamples(t *testing.T) {
 }
 
 func TestLoudnessMeterQuietIntroIsIgnored(t *testing.T) {
-	// three seconds of a very quiet intro followed by five loud ones: the
+	// three seconds of a very quiet intro followed by a long loud part: the
 	// correction has to follow the music, not the intro
-	pcm := append(sineWave(3, 1000, 0.02), sineWave(5, 1000, 0.8)...)
+	pcm := append(sineWave(3, 1000, 0.002), sineWave(12, 1000, 0.8)...)
 
 	loud := newLoudnessMeter(_TEST_SAMPLE_RATE)
-	loud.add(sineWave(5, 1000, 0.8))
+	loud.add(sineWave(12, 1000, 0.8))
 
 	withIntro := newLoudnessMeter(_TEST_SAMPLE_RATE)
 	withIntro.add(pcm)

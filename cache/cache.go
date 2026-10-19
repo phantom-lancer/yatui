@@ -34,6 +34,11 @@ func getCacheDir() (string, error) {
 	return cacheDir, nil
 }
 
+// Dir returns the directory the cached tracks are stored in.
+func Dir() (string, error) {
+	return getCacheDir()
+}
+
 func Read(trackId string) (*os.File, int64, error) {
 	dir, err := getCacheDir()
 	if err != nil {

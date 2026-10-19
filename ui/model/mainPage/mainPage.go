@@ -65,6 +65,11 @@ type Model struct {
 	isSettingsActive bool
 	settingsHover    bool
 
+	// the window with all the key bindings
+	isHelpActive bool
+	helpOffset   int
+	helpRect     Rect
+
 	manualQueue   []api.Track
 	queue         *queueModel
 	isQueueActive bool
@@ -130,6 +135,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
+
+	// the help window captures the keys while it is open
+	if cmd, handled := m.helpControl(message); handled {
+		return m, cmd
+	}
 
 	// settings dialog captures the keys while it is open
 	if cmd, handled := m.settingsControl(message); handled {
@@ -272,6 +282,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		case controls.Theme.Contains(keypress):
 			m.cycleTheme()
+			cmds = append(cmds, tea.ClearScreen)
+		case controls.ShowAllKeys.Contains(keypress):
+			m.toggleHelp()
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.Settings.Contains(keypress):
 			m.toggleSettings()
@@ -500,6 +513,10 @@ func (m *Model) viewBody() string {
 
 	if m.isSettingsActive && m.settings != nil {
 		return m.placeSettings()
+	}
+
+	if m.isHelpActive {
+		return m.placeHelp()
 	}
 
 	if m.isQueueActive && m.queue != nil {

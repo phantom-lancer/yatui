@@ -5,15 +5,16 @@ import "math"
 // The Yandex API stopped sending the R128 gain along with the tracks, so the
 // only way to keep the volume of the tracks on the same level is to measure
 // it locally. This file implements a small ITU-R BS.1770 (EBU R128) loudness
-// meter: K-weighting filters, 100 ms gating blocks and an absolute gate.
+// meter: K-weighting filters, 400 ms gating windows that overlap by 75
+// percents and the absolute and the relative gates.
 const (
 	// _LOUDNESS_TARGET is the loudness every track is brought to. -14 LUFS is
 	// the value the streaming services (Yandex included) normalize to.
 	_LOUDNESS_TARGET = -14.0
-	// _LOUDNESS_SILENCE is the absolute gate of the measurement: blocks
+	// _LOUDNESS_SILENCE is the absolute gate of the measurement: windows
 	// quieter than this are not a part of the integrated loudness.
 	_LOUDNESS_SILENCE = -70.0
-	// _LOUDNESS_RELATIVE_GATE is the second, relative gate: blocks that are
+	// _LOUDNESS_RELATIVE_GATE is the second, relative gate: windows that are
 	// this many LU quieter than the track itself are dropped as well.
 	_LOUDNESS_RELATIVE_GATE = 10.0
 	// _LOUDNESS_MAX_GAIN clamps the correction so that a bad measurement can
@@ -21,9 +22,15 @@ const (
 	_LOUDNESS_MAX_GAIN = 12.0
 	// _LOUDNESS_BLOCK_MS is the length of one gating block.
 	_LOUDNESS_BLOCK_MS = 100
-	// _LOUDNESS_MIN_BLOCKS is how many blocks a stream has to have to be
+	// _LOUDNESS_WINDOW_BLOCKS is how many blocks a gating window covers:
+	// BS.1770 measures 400 ms with a 75 percents overlap, which is one block
+	// of a new material per window.
+	_LOUDNESS_WINDOW_BLOCKS = 4
+	// _LOUDNESS_MIN_WINDOWS is how many windows a stream has to have to be
 	// measured at all: the filters and the average need some material.
-	_LOUDNESS_MIN_BLOCKS = 5
+	_LOUDNESS_MIN_WINDOWS = 5
+	// _LOUDNESS_OFFSET is the calibration offset of BS.1770.
+	_LOUDNESS_OFFSET = -0.691
 )
 
 // biquad is a second order IIR filter in the transposed direct form II.
@@ -40,22 +47,57 @@ func (f *biquad) process(x float64) float64 {
 }
 
 // kWeighting is the frequency weighting of the loudness measurement: a high
-// shelf followed by a high pass. The coefficients are the ones from BS.1770.
+// shelf followed by a high pass.
 type kWeighting struct {
 	pre biquad
 	rlb biquad
 }
 
-func newKWeighting() kWeighting {
-	return kWeighting{
-		pre: biquad{
-			b0: 1.53512485958697, b1: -2.69169618940638, b2: 1.19839281085285,
-			a1: -1.69065929318241, a2: 0.73248077421585,
-		},
-		rlb: biquad{
-			b0: 1.0, b1: -2.0, b2: 1.0,
-			a1: -1.99004745483398, a2: 0.99007225036621,
-		},
+// newKWeighting designs the filters of the K-weighting for the given sample
+// rate. The coefficients the recommendation lists are the ones for 48 kHz, so
+// they are recomputed here: a stream of another rate filtered with them would
+// be weighted differently and the measurement would be off.
+func newKWeighting(sampleRate int) kWeighting {
+	if sampleRate <= 0 {
+		sampleRate = 48000
+	}
+	fs := float64(sampleRate)
+
+	// the high shelf: +4 dB above 1.7 kHz
+	{
+		const (
+			f0   = 1681.974450955533
+			q    = 0.7071752369554196
+			gain = 3.999843853973347
+		)
+		k := math.Tan(math.Pi * f0 / fs)
+		vh := math.Pow(10, gain/20)
+		vb := math.Pow(vh, 0.4996667741545416)
+		a0 := 1 + k/q + k*k
+		pre := kWeighting{}.pre
+		pre.b0 = (vh + vb*k/q + k*k) / a0
+		pre.b1 = 2 * (k*k - vh) / a0
+		pre.b2 = (vh - vb*k/q + k*k) / a0
+		pre.a1 = 2 * (k*k - 1) / a0
+		pre.a2 = (1 - k/q + k*k) / a0
+
+		// the high pass: the "RLB" curve of the recommendation
+		const (
+			hpF0 = 38.13547087602444
+			hpQ  = 0.5003270373238773
+		)
+		hk := math.Tan(math.Pi * hpF0 / fs)
+		ha0 := 1 + hk/hpQ + hk*hk
+		rlb := kWeighting{}.rlb
+		// the recommendation does not normalize the numerator of the high
+		// pass: its gain at the top of the band is 1.0043, not 1
+		rlb.b0 = 1
+		rlb.b1 = -2
+		rlb.b2 = 1
+		rlb.a1 = 2 * (hk*hk - 1) / ha0
+		rlb.a2 = (1 - hk/hpQ + hk*hk) / ha0
+
+		return kWeighting{pre: pre, rlb: rlb}
 	}
 }
 
@@ -69,6 +111,10 @@ type loudnessMeter struct {
 	sum        float64
 	count      int
 	blocks     []float64
+	windows    []float64
+	ring       [_LOUDNESS_WINDOW_BLOCKS]float64
+	ringIndex  int
+	ringFull   bool
 	peak       float64
 	rest       []byte
 }
@@ -81,7 +127,7 @@ func newLoudnessMeter(sampleRate int) *loudnessMeter {
 	return &loudnessMeter{
 		sampleRate: sampleRate,
 		blockSize:  sampleRate * _LOUDNESS_BLOCK_MS / 1000,
-		filters:    [2]kWeighting{newKWeighting(), newKWeighting()},
+		filters:    [2]kWeighting{newKWeighting(sampleRate), newKWeighting(sampleRate)},
 	}
 }
 
@@ -121,11 +167,32 @@ func (m *loudnessMeter) add(pcm []byte) {
 		m.sum += l*l + r*r
 		m.count++
 		if m.count >= m.blockSize {
-			m.blocks = append(m.blocks, m.sum/float64(2*m.count))
+			m.pushBlock(m.sum / float64(m.count))
 			m.sum = 0
 			m.count = 0
 		}
 	}
+}
+
+// pushBlock closes a gating block of the meter. The energy of a block is the
+// sum of the mean squares of all channels, the way BS.1770 defines it.
+func (m *loudnessMeter) pushBlock(energy float64) {
+	m.blocks = append(m.blocks, energy)
+
+	m.ring[m.ringIndex] = energy
+	m.ringIndex = (m.ringIndex + 1) % _LOUDNESS_WINDOW_BLOCKS
+	if m.ringIndex == 0 {
+		m.ringFull = true
+	}
+	if !m.ringFull {
+		return
+	}
+
+	var sum float64
+	for _, block := range m.ring {
+		sum += block
+	}
+	m.windows = append(m.windows, sum/_LOUDNESS_WINDOW_BLOCKS)
 }
 
 // integratedLoudness returns the gated loudness of everything that was fed to
@@ -142,7 +209,7 @@ func (m *loudnessMeter) integratedLoudness() float64 {
 	return m.gatedLoudness(absolute - _LOUDNESS_RELATIVE_GATE)
 }
 
-// gatedLoudness averages the blocks that are louder than the given threshold
+// gatedLoudness averages the windows that are louder than the given threshold
 // (in LUFS).
 func (m *loudnessMeter) gatedLoudness(threshold float64) float64 {
 	var (
@@ -150,14 +217,14 @@ func (m *loudnessMeter) gatedLoudness(threshold float64) float64 {
 		count int
 	)
 
-	for _, block := range m.blocks {
-		if block <= 0 {
+	for _, window := range m.windows {
+		if window <= 0 {
 			continue
 		}
-		if loudness := -0.691 + 10*math.Log10(block); loudness <= threshold {
+		if loudness := _LOUDNESS_OFFSET + 10*math.Log10(window); loudness <= threshold {
 			continue
 		}
-		sum += block
+		sum += window
 		count++
 	}
 
@@ -165,7 +232,7 @@ func (m *loudnessMeter) gatedLoudness(threshold float64) float64 {
 		return math.Inf(-1)
 	}
 
-	return -0.691 + 10*math.Log10(sum/float64(count))
+	return _LOUDNESS_OFFSET + 10*math.Log10(sum/float64(count))
 }
 
 // normalization turns the measurement into the gain of the track. Streams that
@@ -173,12 +240,16 @@ func (m *loudnessMeter) gatedLoudness(threshold float64) float64 {
 func (m *loudnessMeter) normalization() normalization {
 	// the filters need some time to settle, and a stream that is shorter than
 	// half a second is not a track anyway
-	if len(m.blocks) < _LOUDNESS_MIN_BLOCKS {
+	if len(m.windows) < _LOUDNESS_MIN_WINDOWS {
 		return noNormalization
 	}
 
-	loudness := m.integratedLoudness()
-	if math.IsInf(loudness, -1) {
+	return normalizationFor(m.integratedLoudness(), m.peak)
+}
+
+// normalizationFor builds the correction of a track with a known loudness.
+func normalizationFor(loudness, peak float64) normalization {
+	if math.IsInf(loudness, 0) || math.IsNaN(loudness) {
 		return noNormalization
 	}
 
@@ -189,18 +260,5 @@ func (m *loudnessMeter) normalization() normalization {
 		gain = -_LOUDNESS_MAX_GAIN
 	}
 
-	n := normalization{
-		linear: float32(math.Pow(10, gain/20)),
-		limit:  1,
-	}
-
-	// the peak is limited as well: the gain is computed for the average
-	// loudness of the track, but a loud peak can still go over the top
-	if m.peak > 0 {
-		if loudest := m.peak * float64(n.linear); loudest > 1 {
-			n.limit = float32(1 / loudest)
-		}
-	}
-
-	return n
+	return newGainNormalization(gain, peak)
 }

@@ -251,11 +251,12 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 		return nil
 	}
 
-	// playlists
+	// playlists: the pointer only marks the item under it, the panel is
+	// switched by a click or by the keyboard
 	if m.mouse.playlist.Contains(x, y) {
 		index := m.playlists.ItemAt(x-m.mouse.playlist.X, y-m.mouse.playlist.Y)
-		if index >= 0 && index != m.playlists.Index() && m.playlists.ClickItem(index) {
-			m.followSelectedPlaylist()
+		if index >= 0 && index != m.playlists.Index() {
+			m.playlists.Highlight(index)
 		}
 	}
 

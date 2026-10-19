@@ -283,95 +283,92 @@ func (m *Model) view() (string, *Regions) {
 	titleRowY := rowY + lipgloss.Height(progressBlock)
 
 	var trackTitle string
-	if !m.help.ShowAll {
-		disliked := m.dislikesMap != nil && (*m.dislikesMap)[m.track.Id]
+	disliked := m.dislikesMap != nil && (*m.dislikesMap)[m.track.Id]
 
-		// unavailable and disliked tracks are greyed out
-		titleStyle := style.TrackTitleStyle
-		artistStyle := style.TrackArtistStyle
-		if !m.track.Available || disliked {
-			titleStyle = titleStyle.Foreground(style.InactiveTextColor)
-			artistStyle = artistStyle.Foreground(style.InactiveTextColor)
-		}
-		if !m.track.Available || disliked {
-			trackTitle = titleStyle.Strikethrough(true).Render(m.track.Title)
-		} else {
-			trackTitle = titleStyle.Render(m.track.Title)
-		}
-
-		trackVersion := style.TrackVersionStyle.Render(" " + m.track.Version)
-		trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackVersion)
-
-		durTotal := time.Millisecond * time.Duration(m.track.DurationMs)
-		durEllapsed := time.Millisecond * time.Duration(float64(m.track.DurationMs)*m.progress.Percent())
-		trackTime := style.TrackVersionStyle.Render(fmt.Sprintf("%02d:%02d/%02d:%02d",
-			int(durEllapsed.Minutes()),
-			int(durEllapsed.Seconds())%60,
-			int(durTotal.Minutes()),
-			int(durTotal.Seconds())%60,
-		))
-
-		var trackLike string
-		if (*m.likesMap)[m.track.Id] {
-			trackLike = style.IconLiked + " "
-		} else {
-			trackLike = style.IconNotLiked + " "
-		}
-
-		// the dislike indicator sits next to the like one
-		trackDislike := style.TrackAddInfoStyle.Render(style.IconDisliked + " ")
-
-		trackAddInfo := style.TrackAddInfoStyle.Render(trackLike + trackDislike + trackTime)
-		addInfoLen := lipgloss.Width(trackAddInfo)
-		maxLen := m.Width() - addInfoLen - 4
-		stl := lipgloss.NewStyle().MaxWidth(maxLen - 1)
-
-		trackTitleLen := lipgloss.Width(trackTitle)
-		if trackTitleLen > maxLen {
-			trackTitle = stl.Render(trackTitle) + "…"
-		} else if trackTitleLen < maxLen {
-			trackTitle += strings.Repeat(" ", maxLen-trackTitleLen)
-		}
-
-		trackArtist := artistStyle.Render(helpers.ArtistList(m.track.Artists))
-		trackArtistLen := lipgloss.Width(trackArtist)
-		if trackArtistLen > maxLen {
-			trackArtist = stl.Render(trackArtist) + "…"
-		} else if trackArtistLen < maxLen {
-			trackArtist += strings.Repeat(" ", maxLen-trackArtistLen)
-		}
-
-		trackTitle = lipgloss.NewStyle().Width(m.width - lipgloss.Width(trackAddInfo) - 4).Render(trackTitle)
-		trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackAddInfo)
-
-		// the "next" line is always reserved, so the player height (and the
-		// track list above it) does not jump when the queue ends
-		rows := []string{trackTitle, trackArtist, m.nextTrackLine(maxLen), ""}
-		trackTitle = lipgloss.JoinVertical(lipgloss.Left, rows...)
-
-		// like / dislike indicator regions on the track title row
-		addInfoX := m.width - addInfoLen - 4
-		if addInfoX < 0 {
-			addInfoX = 0
-		}
-
-		regions.Like = Rect{
-			X:      contentX + addInfoX,
-			Y:      titleRowY,
-			Width:  lipgloss.Width(trackLike),
-			Height: 1,
-		}
-		regions.Dislike = Rect{
-			X:      contentX + addInfoX + lipgloss.Width(trackLike),
-			Y:      titleRowY,
-			Width:  lipgloss.Width(trackDislike),
-			Height: 1,
-		}
-
-		tracker = lipgloss.JoinVertical(lipgloss.Left, tracker, trackTitle)
+	// unavailable and disliked tracks are greyed out
+	titleStyle := style.TrackTitleStyle
+	artistStyle := style.TrackArtistStyle
+	if !m.track.Available || disliked {
+		titleStyle = titleStyle.Foreground(style.InactiveTextColor)
+		artistStyle = artistStyle.Foreground(style.InactiveTextColor)
+	}
+	if !m.track.Available || disliked {
+		trackTitle = titleStyle.Strikethrough(true).Render(m.track.Title)
+	} else {
+		trackTitle = titleStyle.Render(m.track.Title)
 	}
 
-	tracker = lipgloss.JoinVertical(lipgloss.Left, tracker, m.help.View(m.helpMap))
+	trackVersion := style.TrackVersionStyle.Render(" " + m.track.Version)
+	trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackVersion)
+
+	durTotal := time.Millisecond * time.Duration(m.track.DurationMs)
+	durEllapsed := time.Millisecond * time.Duration(float64(m.track.DurationMs)*m.progress.Percent())
+	trackTime := style.TrackVersionStyle.Render(fmt.Sprintf("%02d:%02d/%02d:%02d",
+		int(durEllapsed.Minutes()),
+		int(durEllapsed.Seconds())%60,
+		int(durTotal.Minutes()),
+		int(durTotal.Seconds())%60,
+	))
+
+	var trackLike string
+	if (*m.likesMap)[m.track.Id] {
+		trackLike = style.IconLiked + " "
+	} else {
+		trackLike = style.IconNotLiked + " "
+	}
+
+	// the dislike indicator sits next to the like one
+	trackDislike := style.TrackAddInfoStyle.Render(style.IconDisliked + " ")
+
+	trackAddInfo := style.TrackAddInfoStyle.Render(trackLike + trackDislike + trackTime)
+	addInfoLen := lipgloss.Width(trackAddInfo)
+	maxLen := m.Width() - addInfoLen - 4
+	stl := lipgloss.NewStyle().MaxWidth(maxLen - 1)
+
+	trackTitleLen := lipgloss.Width(trackTitle)
+	if trackTitleLen > maxLen {
+		trackTitle = stl.Render(trackTitle) + "…"
+	} else if trackTitleLen < maxLen {
+		trackTitle += strings.Repeat(" ", maxLen-trackTitleLen)
+	}
+
+	trackArtist := artistStyle.Render(helpers.ArtistList(m.track.Artists))
+	trackArtistLen := lipgloss.Width(trackArtist)
+	if trackArtistLen > maxLen {
+		trackArtist = stl.Render(trackArtist) + "…"
+	} else if trackArtistLen < maxLen {
+		trackArtist += strings.Repeat(" ", maxLen-trackArtistLen)
+	}
+
+	trackTitle = lipgloss.NewStyle().Width(m.width - lipgloss.Width(trackAddInfo) - 4).Render(trackTitle)
+	trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackAddInfo)
+
+	// the "next" line is always reserved, so the player height (and the
+	// track list above it) does not jump when the queue ends
+	rows := []string{trackTitle, trackArtist, m.nextTrackLine(maxLen), ""}
+	trackTitle = lipgloss.JoinVertical(lipgloss.Left, rows...)
+
+	// like / dislike indicator regions on the track title row
+	addInfoX := m.width - addInfoLen - 4
+	if addInfoX < 0 {
+		addInfoX = 0
+	}
+
+	regions.Like = Rect{
+		X:      contentX + addInfoX,
+		Y:      titleRowY,
+		Width:  lipgloss.Width(trackLike),
+		Height: 1,
+	}
+	regions.Dislike = Rect{
+		X:      contentX + addInfoX + lipgloss.Width(trackLike),
+		Y:      titleRowY,
+		Width:  lipgloss.Width(trackDislike),
+		Height: 1,
+	}
+
+	tracker = lipgloss.JoinVertical(lipgloss.Left, tracker, trackTitle)
+
 	m.regions = regions
 	return style.TrackBoxStyle.Width(m.width).Render(tracker), regions
 }
@@ -393,9 +390,6 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 		keypress := msg.String()
 
 		switch {
-		case controls.ShowAllKeys.Contains(keypress):
-			m.help.ShowAll = !m.help.ShowAll
-
 		case controls.PlayerPause.Contains(keypress), controls.PlayerStop.Contains(keypress):
 			if m.player == nil {
 				break

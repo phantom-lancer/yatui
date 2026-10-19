@@ -1,7 +1,5 @@
 package playlist
 
-import "github.com/charmbracelet/lipgloss"
-
 // Rect is a rectangular area of the component view.
 type Rect struct {
 	X, Y, Width, Height int
@@ -41,17 +39,4 @@ func (m *Model) FooterRect() Rect {
 // cursor.
 func (m *Model) SetFooterHover(hover bool) {
 	m.footerHover = hover
-}
-
-// footerHeight is the number of lines the footer takes from the list.
-func (m *Model) footerHeight() int {
-	return footerHeight(m.footer)
-}
-
-func footerHeight(footer string) int {
-	if footer == "" {
-		return 0
-	}
-	// the block itself plus the empty line above it
-	return lipgloss.Height(footer) + 1
 }

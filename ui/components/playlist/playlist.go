@@ -1,11 +1,12 @@
 package playlist
 
 import (
+	"strings"
+
 	"github.com/dece2183/yamusic-tui/config"
 	"github.com/dece2183/yamusic-tui/ui/model"
 	"github.com/dece2183/yamusic-tui/ui/style"
 
-	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,7 +47,6 @@ func ItemCategory(name string) *Item {
 type Model struct {
 	program       *tea.Program
 	list          list.Model
-	help          help.Model
 	Hidden        bool
 	helpMap       *helpKeyMap
 	width, height int
@@ -61,7 +61,6 @@ type Model struct {
 func New(p *tea.Program, title string) *Model {
 	m := &Model{
 		program: p,
-		help:    help.New(),
 		helpMap: newHelpMap(),
 	}
 
@@ -95,31 +94,44 @@ func (m *Model) View() string {
 	}
 
 	m.helpMap.Renamable = m.SelectedItem().Kind >= USER
-	listHeight := m.height - 2
-	if m.help.ShowAll {
-		listHeight = m.height - 3
-	}
 
 	// the footer is dropped when there is no room for it: the sidebar must
 	// keep its height, or the layout of the whole screen would break
 	footer := ""
-	if m.footer != "" && listHeight-m.footerHeight() >= 1 {
+	if m.footer != "" && m.height-lipgloss.Height(m.footer)-2 >= 1 {
 		footer = m.footer
 	}
-	m.list.SetHeight(listHeight - footerHeight(footer))
 
-	hp := lipgloss.NewStyle().PaddingLeft(2).MaxWidth(m.width - 2).Render(m.help.View(m.helpMap))
+	// the list takes everything the footer does not need, the rest of the
+	// panel is the empty line between them
+	listHeight := m.height - 1
+	if footer != "" {
+		listHeight -= lipgloss.Height(footer)
+	}
+	m.list.SetHeight(listHeight)
+
 	m.resetLayout()
 	listView := m.list.View()
 	m.buildLayout()
 
-	content := lipgloss.JoinVertical(lipgloss.Left, listView, "", hp)
+	content := lipgloss.JoinVertical(lipgloss.Left, listView, "")
 	m.footerRect = Rect{}
 	if footer != "" {
-		content = lipgloss.JoinVertical(lipgloss.Left, content, "", footer)
+		// the block is centered in the panel, so it looks like a part of it
+		offset := (m.width - lipgloss.Width(footer)) / 2
+		if offset < 0 {
+			offset = 0
+		}
+
+		lines := strings.Split(footer, "\n")
+		for i := range lines {
+			lines[i] = strings.Repeat(" ", offset) + lines[i]
+		}
+
+		content = lipgloss.JoinVertical(lipgloss.Left, content, strings.Join(lines, "\n"))
 		m.footerRect = Rect{
-			X:      m.layout.originX,
-			Y:      style.SideBoxStyle.GetBorderTopSize() + style.SideBoxStyle.GetPaddingTop() + lipgloss.Height(listView) + 1 + lipgloss.Height(hp) + 1,
+			X:      m.layout.originX + offset,
+			Y:      style.SideBoxStyle.GetBorderTopSize() + style.SideBoxStyle.GetPaddingTop() + listHeight + 1,
 			Width:  lipgloss.Width(footer),
 			Height: lipgloss.Height(footer),
 		}
@@ -140,8 +152,6 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 		keypress := msg.String()
 
 		switch {
-		case controls.ShowAllKeys.Contains(keypress):
-			m.help.ShowAll = !m.help.ShowAll
 		case controls.PlaylistsUp.Contains(keypress):
 			m.list, cmd = m.list.Update(msg)
 

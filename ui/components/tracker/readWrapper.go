@@ -17,9 +17,11 @@ const (
 	_PROGRESS_UPDATE_PERIOD = 850 * time.Millisecond
 
 	// _LOUDNESS_ANALYSIS_SECONDS is how much of a track is decoded to measure
-	// its loudness. Six seconds are enough for a stable estimate and cost a
-	// fraction of a second of CPU once per track.
-	_LOUDNESS_ANALYSIS_SECONDS = 6
+	// its loudness on the very first play. The head of a track is only an
+	// approximation (music usually gets louder after the intro), so the exact
+	// loudness is measured while the track plays and remembered for the next
+	// plays: such tracks start with no delay at all.
+	_LOUDNESS_ANALYSIS_SECONDS = 10
 )
 
 type readWrapper struct {
@@ -31,7 +33,12 @@ type readWrapper struct {
 	lastUpdateTime time.Time
 	normalization  normalization
 	measurePending bool
+	duckLogged     bool
+	trackID        string
 	trackTitle     string
+	// playMeter measures the whole track while it plays: the result is exact
+	// and is remembered for the next plays.
+	playMeter *loudnessMeter
 	// gainDB keeps the applied correction as the bits of a float64, so the UI
 	// can read it without touching the audio thread.
 	gainDB uint64
@@ -43,11 +50,27 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	w.trackBuffered = false
 	w.trackDone = false
 	w.trackBuffer = reader
+	w.playMeter = nil
+	w.duckLogged = false
+	w.trackID = ""
 	if track != nil {
+		w.trackID = track.Id
 		w.trackTitle = track.Title
 	}
 
 	w.normalization, w.measurePending = newNormalization(track)
+
+	// a track that was played to the end before has its loudness measured
+	// exactly: it needs neither the analysis nor the delay it costs
+	if w.measurePending {
+		if entry, ok := lookupLoudness(w.trackID); ok {
+			w.measurePending = false
+			w.normalization = normalizationFor(entry.Loudness, entry.Peak)
+			log.Print(log.LVL_INFO, "normalization: track '%s' %.1f LUFS (measured before), gain %+.1f dB",
+				w.trackTitle, entry.Loudness, w.normalization.gainDB())
+		}
+	}
+
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
 
 	w.decoder, err = mp3.NewDecoder(w.trackBuffer)
@@ -68,10 +91,12 @@ func (w *readWrapper) measureLoudness() {
 	}
 
 	meter := newLoudnessMeter(w.decoder.SampleRate())
+	bytesPerSecond := meter.sampleRate * 4
 	buffer := make([]byte, 32*1024)
-	wanted := meter.sampleRate * 4 * _LOUDNESS_ANALYSIS_SECONDS
+	wanted := bytesPerSecond * _LOUDNESS_ANALYSIS_SECONDS
+	read := 0
 
-	for read := 0; read < wanted; {
+	for read < wanted {
 		n, err := w.decoder.Read(buffer)
 		if n > 0 {
 			meter.add(buffer[:n])
@@ -98,9 +123,32 @@ func (w *readWrapper) measureLoudness() {
 
 	w.normalization = meter.normalization()
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
-	if w.normalization.scale() {
-		log.Print(log.LVL_INFO, "normalization: track '%s' corrected by %.1f dB", w.trackTitle, w.normalization.gainDB())
+
+	seconds := read / bytesPerSecond
+	if loudness := meter.integratedLoudness(); math.IsInf(loudness, -1) {
+		log.Print(log.LVL_INFO, "normalization: track '%s' is silent, played as is", w.trackTitle)
+	} else {
+		log.Print(log.LVL_INFO, "normalization: track '%s' %.1f LUFS in the first %d s (peak %.2f), gain %+.1f dB",
+			w.trackTitle, loudness, seconds, meter.peak, w.normalization.gainDB())
 	}
+}
+
+// finalizeLoudness remembers the loudness of a track that was played to the
+// end: the next play of it will start with the exact correction and without
+// the analysis.
+func (w *readWrapper) finalizeLoudness() {
+	if w.playMeter == nil || len(w.playMeter.windows) < _LOUDNESS_MIN_WINDOWS {
+		return
+	}
+
+	loudness := w.playMeter.integratedLoudness()
+	if math.IsInf(loudness, 0) {
+		return
+	}
+
+	log.Print(log.LVL_INFO, "normalization: track '%s' measured %.1f LUFS in full (peak %.2f)",
+		w.trackTitle, loudness, w.playMeter.peak)
+	storeLoudness(w.trackID, loudnessEntry{Loudness: loudness, Peak: w.playMeter.peak})
 }
 
 func (w *readWrapper) Close() {
@@ -142,7 +190,18 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 	// volume normalization is applied to the decoded samples, right before
 	// they reach the player
 	if n > 0 {
-		w.normalization.apply(dest[:n])
+		// the loudness of the whole track is measured on the fly: the exact
+		// value is remembered for the next plays
+		if w.playMeter == nil {
+			w.playMeter = newLoudnessMeter(w.decoder.SampleRate())
+		}
+		w.playMeter.add(dest[:n])
+
+		if guarded := w.normalization.apply(dest[:n]); guarded && !w.duckLogged {
+			w.duckLogged = true
+			log.Print(log.LVL_INFO, "normalization: track '%s' peak protection lowered the gain to %+.1f dB",
+				w.trackTitle, w.normalization.gainDB())
+		}
 	}
 
 	if w.trackBuffer.IsBuffered() && !w.trackBuffered {
@@ -152,6 +211,7 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 
 	if w.trackBuffer.IsDone() && !w.trackDone {
 		w.trackDone = true
+		w.finalizeLoudness()
 		w.decoder.Seek(0, io.SeekStart)
 		w.trackBuffer.Close()
 		go w.program.Send(NEXT)

@@ -57,7 +57,7 @@ func TestFooterIsClickable(t *testing.T) {
 }
 
 func TestFooterDisappearsWithoutRoom(t *testing.T) {
-	m := newTestModel(t, []string{"my wave"}, 32, 6)
+	m := newTestModel(t, []string{"my wave"}, 32, 4)
 	m.SetFooter("SETTINGS-BLOCK\nSECOND-LINE\nTHIRD-LINE")
 
 	view := m.View()
