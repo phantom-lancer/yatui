@@ -71,3 +71,14 @@ func Remove(trackId string) error {
 
 	return os.Remove(filepath.Join(dir, trackId+".mp3"))
 }
+
+// Exists reports whether the track is present in the cache.
+func Exists(trackId string) bool {
+	dir, err := getCacheDir()
+	if err != nil {
+		return false
+	}
+
+	_, err = os.Stat(filepath.Join(dir, trackId+".mp3"))
+	return err == nil
+}

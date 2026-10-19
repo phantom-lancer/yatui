@@ -113,6 +113,16 @@ func (m *Model) prevTrack() {
 }
 
 func (m *Model) nextTrack() {
+	// tracks explicitly put into the queue always go first
+	for len(m.manualQueue) > 0 {
+		track := m.manualQueue[0]
+		m.manualQueue = m.manualQueue[1:]
+		if track.Available {
+			m.playTrack(&track)
+			return
+		}
+	}
+
 	if len(m.playQueue) == 0 {
 		m.Send(tracker.STOP)
 		return
@@ -328,6 +338,10 @@ func (m *Model) playTrack(track *api.Track) {
 // nextTrackTitle returns a human readable name of the track that will be
 // played next, or an empty string when the queue is over.
 func (m *Model) nextTrackTitle() string {
+	if len(m.manualQueue) > 0 {
+		track := &m.manualQueue[0]
+		return helpers.ArtistList(track.Artists) + " — " + track.Title
+	}
 	for i := m.playQueueTrackIndex + 1; i < len(m.playQueue); i++ {
 		track := &m.playQueue[i]
 		if !track.Available {

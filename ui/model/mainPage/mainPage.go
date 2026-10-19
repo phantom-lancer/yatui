@@ -60,6 +60,13 @@ type Model struct {
 
 	settings         *settingsModel
 	isSettingsActive bool
+
+	manualQueue   []api.Track
+	queue         *queueModel
+	isQueueActive bool
+
+	cache         *cacheModel
+	isCacheActive bool
 }
 
 // mainpage.Model constructor.
@@ -119,6 +126,21 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	// settings dialog captures the keys while it is open
 	if cmd, handled := m.settingsControl(message); handled {
 		return m, cmd
+	}
+
+	// queue dialog captures the keys while it is open
+	if cmd, handled := m.queueControl(message); handled {
+		return m, cmd
+	}
+
+	// cache manager captures the keys while it is open
+	if cmd, handled := m.cacheControl(message); handled {
+		return m, cmd
+	}
+
+	// clicks must not reach the components behind an open dialog
+	if _, isMouse := message.(tea.MouseMsg); isMouse && (m.isSettingsActive || m.isQueueActive || m.isCacheActive) {
+		return m, nil
 	}
 
 	// context menu has priority over everything.
@@ -186,6 +208,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.expireToasts()
 		return m, nil
 
+	case cacheListMsg:
+		m.applyCacheList(msg)
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, tea.ClearScreen
@@ -226,6 +252,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.Settings.Contains(keypress):
 			m.toggleSettings()
+			cmds = append(cmds, tea.ClearScreen)
+		case controls.Queue.Contains(keypress):
+			m.toggleQueue()
+			cmds = append(cmds, tea.ClearScreen)
+		case controls.Cache.Contains(keypress):
+			cmds = append(cmds, m.toggleCache())
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.Reload.Contains(keypress):
 			m.isLoading = true
@@ -439,6 +471,14 @@ func (m *Model) viewBody() string {
 
 	if m.isSettingsActive && m.settings != nil {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.settings.view())
+	}
+
+	if m.isQueueActive && m.queue != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.queueView())
+	}
+
+	if m.isCacheActive && m.cache != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.cacheView())
 	}
 
 	if m.isSearchActive || m.isAddPlaylistActive {

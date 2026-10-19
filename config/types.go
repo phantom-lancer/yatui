@@ -93,6 +93,8 @@ type Controls struct {
 	ShowAllKeys *Key `yaml:"show-all-kyes"`
 	Theme       *Key `yaml:"theme"`
 	Settings    *Key `yaml:"settings"`
+	Queue       *Key `yaml:"queue"`
+	Cache       *Key `yaml:"cache"`
 	// Playlists control
 	PlaylistsUp     *Key `yaml:"playlists-up"`
 	PlaylistsDown   *Key `yaml:"playlists-down"`
@@ -184,6 +186,8 @@ var defaultConfig = Config{
 		ShowAllKeys:              NewKey("?"),
 		Theme:                    NewKey("ctrl+y"),
 		Settings:                 NewKey("f9"),
+		Queue:                    NewKey("q"),
+		Cache:                    NewKey("c"),
 		PlaylistsUp:              NewKey("ctrl+up"),
 		PlaylistsDown:            NewKey("ctrl+down"),
 		PlaylistsRename:          NewKey("ctrl+r"),

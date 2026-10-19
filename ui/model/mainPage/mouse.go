@@ -431,6 +431,14 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 
 	menuItems := []contextMenuItem{
 		{label: "Play", action: func(m *Model) tea.Cmd { return m.playTrackAt(trackIdx) }},
+		{label: "Play next", action: func(m *Model) tea.Cmd {
+			m.addNext(track)
+			return nil
+		}},
+		{label: "Add to queue", action: func(m *Model) tea.Cmd {
+			m.addToQueue(track)
+			return nil
+		}},
 		{label: "Start radio", action: func(m *Model) tea.Cmd { return m.playRadioByTrack(track) }},
 		{label: "Add to playlist", action: func(m *Model) tea.Cmd {
 			m.searchDialog.Title = "Add " + track.Title + " to"
@@ -445,6 +453,7 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 			link := api.ShareTrackLink(track)
 			if link != "" {
 				m.clipboard.CopyText(link)
+				m.showToast("Ссылка скопирована")
 			}
 			return nil
 		}},
