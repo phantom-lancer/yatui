@@ -45,13 +45,20 @@ func (m *Model) addToQueue(track *api.Track) {
 }
 
 // queueEntries returns the manual queue followed by the upcoming tracks of
-// the current playlist.
+// the current playlist. Only the first entries are built: the dialog is a
+// snapshot and a ten thousand track playlist must not be copied on every
+// repaint.
 func (m *Model) queueEntries() []queueEntry {
+	const maxEntries = 300
+
 	entries := make([]queueEntry, 0, len(m.manualQueue)+8)
 	for _, track := range m.manualQueue {
+		if len(entries) >= maxEntries {
+			return entries
+		}
 		entries = append(entries, queueEntry{track: track, manual: true})
 	}
-	for i := m.playQueueTrackIndex + 1; i < len(m.playQueue); i++ {
+	for i := m.playQueueTrackIndex + 1; i < len(m.playQueue) && len(entries) < maxEntries; i++ {
 		entries = append(entries, queueEntry{track: m.playQueue[i]})
 	}
 	return entries
