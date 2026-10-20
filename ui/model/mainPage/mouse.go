@@ -465,8 +465,7 @@ func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
 		items = append(items, contextMenuItem{
 			label: "Change mood",
 			action: func(m *Model) tea.Cmd {
-				m.openStationPicker(x, y)
-				return nil
+				return m.openStationPicker(x, y)
 			},
 		})
 	}

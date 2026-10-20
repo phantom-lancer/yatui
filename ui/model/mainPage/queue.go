@@ -19,6 +19,15 @@ type queueModel struct {
 	offset int
 }
 
+// queueLayout is where the rows of the window ended up on the screen.
+type queueLayout struct {
+	x, y  int
+	width int
+	rowY  int
+	rows  int
+	valid bool
+}
+
 // queueEntry is one row of the queue. manual entries were put there by the
 // user and can be removed; the rest is the upcoming part of the playlist.
 type queueEntry struct {
@@ -183,6 +192,12 @@ func (m *Model) queueControl(message tea.Msg) (tea.Cmd, bool) {
 		m.queue.up()
 	case keypress == "down":
 		m.queue.down(len(entries))
+	case keypress == "ctrl+up", keypress == "k", keypress == "K":
+		m.moveManualQueueEntry(m.queue.index, -1)
+	case keypress == "ctrl+down", keypress == "j", keypress == "J":
+		m.moveManualQueueEntry(m.queue.index, 1)
+	case keypress == "p", keypress == "P":
+		m.moveManualQueueToTop(m.queue.index)
 	case keypress == "enter":
 		m.playQueueEntry(entries, m.queue.index)
 		m.isQueueActive = false
@@ -201,6 +216,42 @@ func (m *Model) queueControl(message tea.Msg) (tea.Cmd, bool) {
 	return tea.ClearScreen, true
 }
 
+// moveManualQueueEntry moves the manual entry of the queue by the given
+// number of places. Only the tracks the user added can be moved.
+func (m *Model) moveManualQueueEntry(index, delta int) {
+	if index < 0 || index >= len(m.manualQueue) {
+		return
+	}
+
+	target := index + delta
+	if target < 0 || target >= len(m.manualQueue) {
+		return
+	}
+
+	m.manualQueue[index], m.manualQueue[target] = m.manualQueue[target], m.manualQueue[index]
+
+	// the selection follows the moved track
+	if m.queue != nil {
+		m.queue.index = target
+	}
+}
+
+// moveManualQueueToTop puts the manual entry of the queue at the first place:
+// it will be played right after the current track.
+func (m *Model) moveManualQueueToTop(index int) {
+	if index <= 0 || index >= len(m.manualQueue) {
+		return
+	}
+
+	track := m.manualQueue[index]
+	m.manualQueue = append(m.manualQueue[:index], m.manualQueue[index+1:]...)
+	m.manualQueue = append([]api.Track{track}, m.manualQueue...)
+
+	if m.queue != nil {
+		m.queue.index = 0
+	}
+}
+
 func (m *Model) removeManualQueueEntry(index int) {
 	if index < 0 || index >= len(m.manualQueue) {
 		return
@@ -212,6 +263,55 @@ func (m *Model) removeManualQueueEntry(index int) {
 	if m.queue.index < 0 {
 		m.queue.index = 0
 	}
+}
+
+// rowAt returns the index of the row under the given screen coordinates.
+func (l queueLayout) rowAt(x, y int) (int, bool) {
+	if !l.valid || x < l.x || x >= l.x+l.width || y < l.rowY {
+		return 0, false
+	}
+	if row := y - l.rowY; row < l.rows {
+		return row, true
+	}
+	return 0, false
+}
+
+// queueMouse handles the mouse while the queue is open.
+func (m *Model) queueMouse(msg tea.MouseMsg) tea.Cmd {
+	if m.queue == nil {
+		return nil
+	}
+	layout := m.queueLayout
+
+	switch msg.Action {
+	case tea.MouseActionMotion:
+		if msg.Button != tea.MouseButtonNone {
+			break
+		}
+		if row, ok := layout.rowAt(msg.X, msg.Y); ok && row != m.queue.index {
+			m.queue.index = row
+		}
+
+	case tea.MouseActionPress:
+		if msg.Button != tea.MouseButtonLeft && msg.Button != tea.MouseButtonMiddle {
+			break
+		}
+		row, ok := layout.rowAt(msg.X, msg.Y)
+		if !ok {
+			return nil
+		}
+		if row == m.queue.index {
+			// the second click plays the track
+			entries := m.queueEntries()
+			m.playQueueEntry(entries, row)
+			m.isQueueActive = false
+			m.queue = nil
+			return tea.ClearScreen
+		}
+		m.queue.index = row
+	}
+
+	return nil
 }
 
 // queueView renders the queue dialog.
@@ -284,11 +384,39 @@ func (m *Model) queueView() string {
 		lipgloss.JoinVertical(lipgloss.Left, rows...),
 	))
 
-	return lipgloss.JoinVertical(
+	// the window is placed in the middle of the screen: the rows are counted
+	// from its top
+	view := lipgloss.JoinVertical(
 		lipgloss.Left,
 		box,
-		style.DialogHelpStyle.Render("↑/↓ — выбрать, enter — играть, delete — убрать, c — очистить, esc — закрыть"),
+		style.DialogHelpStyle.Render("↑/↓ — выбор, ctrl+↑/↓ или k/j — переставить, p — в начало"),
+		style.DialogHelpStyle.Render("enter — играть, delete — убрать, c — очистить, esc — закрыть"),
 	)
+
+	width := lipgloss.Width(view)
+	height = lipgloss.Height(view)
+	x := (m.width - width) / 2
+	y := (m.height - height) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// the border, the padding, the title with its margin and the two lines
+	// above the rows
+	const headerLines = 2 + 2 + 2
+	m.queueLayout = queueLayout{
+		x:     x,
+		y:     y,
+		width: width,
+		rowY:  y + headerLines,
+		rows:  len(entries),
+		valid: true,
+	}
+
+	return view
 }
 
 // trackLabel is "Artist — Title" with a fallback to the plain title.

@@ -70,28 +70,14 @@ func (m *Model) loadStations() []api.StationDesc {
 	return stationsCache
 }
 
-// openStationPicker shows the menu with the available stations (moods).
-func (m *Model) openStationPicker(x, y int) {
-	stations := m.loadStations()
-	if len(stations) == 0 {
+// openStationPicker shows the window with the available stations.
+func (m *Model) openStationPicker(x, y int) tea.Cmd {
+	if len(m.loadStations()) == 0 {
 		m.tracker.ShowError("stations list")
-		return
+		return nil
 	}
 
-	items := make([]contextMenuItem, 0, len(stations))
-	for _, station := range stations {
-		desc := station
-		items = append(items, contextMenuItem{
-			label:  station.Station.Name,
-			action: func(m *Model) tea.Cmd { return m.startStation(desc) },
-		})
-	}
-
-	m.contextMenu = &contextMenu{
-		x:     x,
-		y:     y,
-		items: items,
-	}
+	return m.openStations()
 }
 
 // startStation begins a radio session for the given station.

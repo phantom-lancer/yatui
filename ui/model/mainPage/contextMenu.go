@@ -17,6 +17,9 @@ type contextMenu struct {
 	index    int
 	trackIdx int
 	plIdx    int
+	// maxHeight is the height of the screen: a long menu is cut off, so it
+	// never reaches beyond the screen.
+	maxHeight int
 }
 
 type contextMenuItem struct {
@@ -61,6 +64,9 @@ func (cm *contextMenu) size() (int, int) {
 
 	// border top + items + border bottom
 	height := len(cm.items) + 2
+	if cm.maxHeight > 0 && height > cm.maxHeight {
+		height = cm.maxHeight
+	}
 
 	return width, height
 }

@@ -3,6 +3,7 @@ package mainpage
 import (
 	"errors"
 	"net/url"
+	"strconv"
 	"sync"
 
 	"github.com/phantom-lancer/yatui/api"
@@ -46,19 +47,23 @@ func (m *Model) initialLoad() {
 	}
 
 	var (
-		wg                     sync.WaitGroup
-		myWaveMenuBlock        menuBlock
-		localTracksMenuBlock   menuBlock
-		likedTracksMenuBlock   menuBlock
-		likedAlbumsMenuBlock   menuBlock
-		pinnedAlbumsMenuBlock  menuBlock
-		userPlaylistsMenuBlock menuBlock
+		wg                      sync.WaitGroup
+		myWaveMenuBlock         menuBlock
+		localTracksMenuBlock    menuBlock
+		likedTracksMenuBlock    menuBlock
+		likedPlaylistsMenuBlock menuBlock
+		likedArtistsMenuBlock   menuBlock
+		likedAlbumsMenuBlock    menuBlock
+		pinnedAlbumsMenuBlock   menuBlock
+		userPlaylistsMenuBlock  menuBlock
 	)
 
-	wg.Add(6)
+	wg.Add(8)
 	go m.loadMyWave(&wg, &myWaveMenuBlock)
 	go m.loadLocalTracks(&wg, &localTracksMenuBlock)
 	go m.loadLikedTracks(&wg, &likedTracksMenuBlock)
+	go m.loadLikedPlaylists(&wg, &likedPlaylistsMenuBlock)
+	go m.loadLikedArtists(&wg, &likedArtistsMenuBlock)
 	go m.loadLikedAlbums(&wg, &likedAlbumsMenuBlock)
 	go m.loadPinnedAlbums(&wg, &pinnedAlbumsMenuBlock)
 	go m.loadUserPlaylists(&wg, &userPlaylistsMenuBlock)
@@ -98,6 +103,24 @@ func (m *Model) initialLoad() {
 	} else {
 		log.Print(log.LVL_ERROR, "failed to obtain liked tracks: %s", likedTracksMenuBlock.err)
 		m.tracker.ShowError("liked tracks")
+	}
+
+	if likedPlaylistsMenuBlock.err == nil {
+		for _, item := range likedPlaylistsMenuBlock.items {
+			m.playlists.InsertItem(-1, item)
+		}
+	} else {
+		log.Print(log.LVL_ERROR, "failed to obtain liked playlists: %s", likedPlaylistsMenuBlock.err)
+		m.tracker.ShowError("liked playlists")
+	}
+
+	if likedArtistsMenuBlock.err == nil {
+		for _, item := range likedArtistsMenuBlock.items {
+			m.playlists.InsertItem(-1, item)
+		}
+	} else {
+		log.Print(log.LVL_ERROR, "failed to obtain liked artists: %s", likedArtistsMenuBlock.err)
+		m.tracker.ShowError("liked artists")
 	}
 
 	if likedAlbumsMenuBlock.err == nil {
@@ -200,6 +223,95 @@ func (m *Model) loadLikedTracks(wg *sync.WaitGroup, block *menuBlock) {
 	}
 
 	st := &playlist.Item{Name: "tracks", Kind: playlist.LIKES, Active: len(tracks) > 0, Subitem: true, Tracks: tracks}
+	block.items = append(block.items, st)
+}
+
+func (m *Model) loadLikedPlaylists(wg *sync.WaitGroup, block *menuBlock) {
+	defer wg.Done()
+
+	if m.client == nil {
+		return
+	}
+
+	liked, err := m.client.LikedPlaylists()
+	if err != nil {
+		block.err = err
+		return
+	}
+
+	for _, info := range liked {
+		if !info.Playlist.Available {
+			continue
+		}
+
+		tracks, err := m.client.PlaylistTracks(info.Playlist.Kind, info.Playlist.Owner.Uid, false)
+		if err != nil {
+			log.Print(log.LVL_ERROR, "failed to obtain the tracks of the liked playlist [%s]: %s", info.Playlist.Title, err)
+			continue
+		}
+
+		name := info.Playlist.Title
+		if name == "" {
+			name = "playlist"
+		}
+
+		st := &playlist.Item{
+			Name:     name,
+			Kind:     playlist.LIKES_PLAYLISTS,
+			Active:   len(tracks) > 0,
+			Subitem:  true,
+			Tracks:   tracks,
+			Revision: info.Playlist.Revision,
+		}
+		block.items = append(block.items, st)
+	}
+}
+
+func (m *Model) loadLikedArtists(wg *sync.WaitGroup, block *menuBlock) {
+	defer wg.Done()
+
+	if m.client == nil {
+		return
+	}
+
+	liked, err := m.client.LikedArtists()
+	if err != nil {
+		block.err = err
+		return
+	}
+
+	const maxArtists = 10
+
+	ids := make([]string, 0, 64)
+	for i, info := range liked {
+		if i >= maxArtists {
+			break
+		}
+
+		id, err := strconv.ParseUint(info.Id, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		popular, err := m.client.ArtistPopularTracks(id)
+		if err != nil {
+			log.Print(log.LVL_ERROR, "failed to obtain the tracks of the liked artist [%s]: %s", info.Name, err)
+			continue
+		}
+
+		ids = append(ids, popular.Tracks...)
+	}
+
+	tracks := make([]api.Track, 0)
+	if len(ids) > 0 {
+		tracks, err = m.client.Tracks(ids)
+		if err != nil {
+			log.Print(log.LVL_ERROR, "failed to obtain the tracks of the liked artists: %s", err)
+			tracks = nil
+		}
+	}
+
+	st := &playlist.Item{Name: "artists", Kind: playlist.LIKES_ARTISTS, Active: len(tracks) > 0, Subitem: true, Tracks: tracks}
 	block.items = append(block.items, st)
 }
 

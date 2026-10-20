@@ -28,6 +28,8 @@ const (
 	NONE PlaylistType = iota
 	MYWAVE
 	LIKES
+	LIKES_PLAYLISTS
+	LIKES_ARTISTS
 	LOCAL
 	ALBUMS
 	// Should be the last to detect downloaded user playlists

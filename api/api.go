@@ -507,6 +507,20 @@ func (client *YaMusicClient) LikedAlbums() (albums []LikeAlbumInfo, err error) {
 	return
 }
 
+// LikedPlaylists returns the playlists the user likes.
+func (client *YaMusicClient) LikedPlaylists() (playlists []LikedPlaylistInfo, err error) {
+	playlists, _, err = getRequest[[]LikedPlaylistInfo](client.token,
+		fmt.Sprintf("/users/%d/likes/playlists", client.userid), nil)
+	return
+}
+
+// LikedArtists returns the artists the user likes.
+func (client *YaMusicClient) LikedArtists() (artists []LikedArtistInfo, err error) {
+	artists, _, err = getRequest[[]LikedArtistInfo](client.token,
+		fmt.Sprintf("/users/%d/likes/artists", client.userid), nil)
+	return
+}
+
 func (client *YaMusicClient) PinnedAlbums() (albums []PinInfo, err error) {
 	desc, _, err := getRequest[PinsDesc](client.token, "/pins", nil)
 	if err != nil {

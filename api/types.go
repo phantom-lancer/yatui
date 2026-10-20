@@ -357,6 +357,19 @@ type LikeAlbumInfo struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// LikedPlaylistInfo is a playlist the user likes.
+type LikedPlaylistInfo struct {
+	Playlist  Playlist `json:"playlist"`
+	Timestamp string   `json:"timestamp"`
+}
+
+// LikedArtistInfo is an artist the user likes.
+type LikedArtistInfo struct {
+	Id      string `json:"id"`
+	Name    string `json:"name"`
+	Various bool   `json:"various"`
+}
+
 type PinData struct {
 	Id    uint64 `json:"id"`
 	Title string `json:"title"`
