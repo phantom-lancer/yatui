@@ -44,7 +44,7 @@ type readWrapper struct {
 	gainDB uint64
 }
 
-func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track) {
+func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track) error {
 	var err error
 
 	w.trackBuffered = false
@@ -76,10 +76,13 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	w.decoder, err = mp3.NewDecoder(w.trackBuffer)
 	if err != nil {
 		log.Print(log.LVL_ERROR, "failed to create mp3 decoder: %s", err)
-		return
+		w.decoder = nil
+		return err
 	}
 
 	w.lastUpdateTime = time.Now()
+
+	return nil
 }
 
 // measureLoudness decodes the beginning of the track to find out how loud it
@@ -160,9 +163,15 @@ func (w *readWrapper) Close() {
 		w.trackBuffer.Close()
 	}
 }
-
 func (w *readWrapper) Read(dest []byte) (n int, err error) {
 	if w.trackBuffer == nil {
+		err = io.EOF
+		return
+	}
+
+	// the decoder is missing when the stream was empty or broken: the player
+	// must get the end of the track instead of a crash
+	if w.decoder == nil {
 		err = io.EOF
 		return
 	}
@@ -226,6 +235,9 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 
 func (w *readWrapper) Seek(offset int64, whence int) (int64, error) {
 	w.lastUpdateTime = time.Now()
+	if w.decoder == nil {
+		return 0, io.EOF
+	}
 	return w.decoder.Seek(offset, whence)
 }
 

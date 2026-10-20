@@ -77,6 +77,10 @@ type Model struct {
 	// that are already on their way are dropped when it changes
 	waveGeneration int64
 
+	// failedTracks counts the broken tracks in a row: the playback gives up
+	// when there are too many of them
+	failedTracks int
+
 	manualQueue   []api.Track
 	queue         *queueModel
 	isQueueActive bool

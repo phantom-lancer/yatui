@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,9 @@ import (
 const (
 	_TRACK_DOWNLOAD_TRIES     = 3
 	_TRACK_FINISHED_THRESHOLD = 0.8
+	// _TRACK_FAILURES_LIMIT is how many broken tracks in a row are skipped
+	// before the playback gives up.
+	_TRACK_FAILURES_LIMIT = 3
 )
 
 func (m *Model) feedbackOnTrack(batch string) *api.RotorFeedback {
@@ -260,6 +264,12 @@ func (m *Model) playTrack(track *api.Track) {
 				lastErr = derr
 				continue
 			}
+			if ts2 <= 0 {
+				// an empty body: the track is tried again
+				log.Print(log.LVL_ERROR, "track [%s] is empty", track.Id)
+				lastErr = errors.New("empty track")
+				continue
+			}
 			trackReader = tr2
 			trackSize = ts2
 			lastErr = nil
@@ -326,7 +336,18 @@ func (m *Model) playTrack(track *api.Track) {
 	}
 
 	m.tracker.SetNextTrack(m.nextTrackTitle())
-	m.tracker.StartTrack(track, trackBuffer, lyrics)
+	if !m.tracker.StartTrack(track, trackBuffer, lyrics) {
+		// the track is broken: the next one is tried instead
+		m.failedTracks++
+		if m.failedTracks > _TRACK_FAILURES_LIMIT {
+			m.failedTracks = 0
+			m.Send(tracker.STOP)
+			return
+		}
+		m.nextTrack()
+		return
+	}
+	m.failedTracks = 0
 	m.scrobbleStart(track)
 	m.indicateCurrentTrackPlaying(true)
 	m.mediaHandler.OnPlayback()

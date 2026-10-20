@@ -541,7 +541,9 @@ func (m *Model) Volume() float64 {
 	return m.volume
 }
 
-func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyrics []api.LyricPair) {
+// StartTrack begins the playback of a track. It reports whether the track
+// could be played: a broken download leaves the player alone.
+func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyrics []api.LyricPair) bool {
 	m.showError = false
 	m.volume = config.Current.Volume
 	m.volumeIncremet = m.volume / _VOLUME_FADE_STEPS
@@ -551,7 +553,12 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	}
 
 	m.track = *track
-	m.trackWrapper.NewReader(reader, &m.track)
+	if err := m.trackWrapper.NewReader(reader, &m.track); err != nil {
+		m.ShowError("track download")
+		m.paused = true
+		return false
+	}
+
 	m.player = m.playerContext.NewPlayer(m.trackWrapper)
 	m.player.SetVolume(0)
 	m.player.Play()
@@ -559,6 +566,8 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	m.paused = false
 	m.playtime = 0
 	m.playStarted = time.Now()
+
+	return true
 }
 
 func (m *Model) Stop() {
