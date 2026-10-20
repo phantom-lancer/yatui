@@ -5,7 +5,7 @@
 играет музыку напрямую с серверов Яндекс Музыки, поддерживает мышь, оформление
 и нормализацию громкости по стандарту ITU-R BS.1770 (EBU R128).
 
-![screenshot](.assets/screenshot.png)
+<img width="1114" height="761" alt="WindowsTerminal_8kWjGoEoco" src="https://github.com/user-attachments/assets/17e327a2-7a61-4414-8263-ab1c5cd36baf" />
 
 Это публичный форк [dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui)
 — автор оригинала и исходный проект. Всё, что здесь есть сверх оригинала,
