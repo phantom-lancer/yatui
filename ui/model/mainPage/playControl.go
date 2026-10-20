@@ -12,14 +12,14 @@ import (
 	_ "image/png"
 
 	"github.com/bogem/id3v2/v2"
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/cache"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/stream"
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
-	"github.com/dece2183/yamusic-tui/ui/components/tracker"
-	"github.com/dece2183/yamusic-tui/ui/components/tracklist"
-	"github.com/dece2183/yamusic-tui/ui/helpers"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/cache"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/stream"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/ui/components/tracker"
+	"github.com/phantom-lancer/yatui/ui/components/tracklist"
+	"github.com/phantom-lancer/yatui/ui/helpers"
 )
 
 const (

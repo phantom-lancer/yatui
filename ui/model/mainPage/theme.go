@@ -1,9 +1,9 @@
 package mainpage
 
 import (
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // cycleTheme switches to the next known theme and applies it on the fly.

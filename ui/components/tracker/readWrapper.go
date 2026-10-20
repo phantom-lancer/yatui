@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	mp3 "github.com/dece2183/go-stream-mp3"
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/stream"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/stream"
 )
 
 const (

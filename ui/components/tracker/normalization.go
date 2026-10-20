@@ -3,8 +3,8 @@ package tracker
 import (
 	"math"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 // _NORMALIZATION_CEILING is the loudest sample the peak guard allows: a

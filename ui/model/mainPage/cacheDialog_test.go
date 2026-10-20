@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/dece2183/yamusic-tui/api"
+	"github.com/phantom-lancer/yatui/api"
 )
 
 func TestHumanSize(t *testing.T) {

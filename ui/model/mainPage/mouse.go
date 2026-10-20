@@ -6,12 +6,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
-	"github.com/dece2183/yamusic-tui/ui/components/search"
-	"github.com/dece2183/yamusic-tui/ui/components/tracker"
-	"github.com/dece2183/yamusic-tui/ui/model"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/ui/components/search"
+	"github.com/phantom-lancer/yatui/ui/components/tracker"
+	"github.com/phantom-lancer/yatui/ui/model"
 )
 
 // _TRACK_RESTART_THRESHOLD is the playback position after which the

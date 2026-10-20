@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 type Level int

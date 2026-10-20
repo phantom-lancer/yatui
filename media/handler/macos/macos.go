@@ -174,7 +174,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/dece2183/yamusic-tui/media/handler"
+	"github.com/phantom-lancer/yatui/media/handler"
 )
 
 var globalHandler *MacosHandler

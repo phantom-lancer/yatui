@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // _SETTINGS_BUTTON_MARGIN is the space between the button and the border of

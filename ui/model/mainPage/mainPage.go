@@ -5,17 +5,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/media/handler"
-	"github.com/dece2183/yamusic-tui/ui/components/input"
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
-	"github.com/dece2183/yamusic-tui/ui/components/search"
-	"github.com/dece2183/yamusic-tui/ui/components/tracker"
-	"github.com/dece2183/yamusic-tui/ui/components/tracklist"
-	"github.com/dece2183/yamusic-tui/ui/model"
-	"github.com/dece2183/yamusic-tui/ui/model/hotkeys"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/media/handler"
+	"github.com/phantom-lancer/yatui/ui/components/input"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/ui/components/search"
+	"github.com/phantom-lancer/yatui/ui/components/tracker"
+	"github.com/phantom-lancer/yatui/ui/components/tracklist"
+	"github.com/phantom-lancer/yatui/ui/model"
+	"github.com/phantom-lancer/yatui/ui/model/hotkeys"
+	"github.com/phantom-lancer/yatui/ui/style"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -141,7 +141,7 @@ func (m *Model) Send(msg tea.Msg) {
 func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
-	return tea.Batch(tea.SetWindowTitle(config.DirName), m.spinner.Tick)
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick)
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {

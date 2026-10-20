@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 // helper: builds a stereo PCM buffer from int16 samples (little endian)

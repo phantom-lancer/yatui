@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 const (

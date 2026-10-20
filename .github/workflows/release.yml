@@ -23,63 +23,73 @@ jobs:
     - name: Download dependencies
       run: go mod vendor
     - name: Pack vendor dir
-      run: tar -czf yamusic-tui-vendor.tar.gz ./vendor
+      run: tar -czf yatui-vendor.tar.gz ./vendor
     - name: Upload vendor archive
       uses: svenstaro/upload-release-action@v2
       with:
-        file: yamusic-tui-vendor.tar.gz
+        file: yatui-vendor.tar.gz
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true
 
     - name: Build linux-amd64
-      run: go build -trimpath -ldflags="-w -s" -o yamusic
+      run: go build -trimpath -ldflags="-w -s" -o yatui
       env:
         GOOS: linux
         GOARCH: amd64
     - name: Upload linux-amd64
       uses: svenstaro/upload-release-action@v2
       with:
-        file: yamusic
+        file: yatui
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true
 
     - name: Build linux-amd64-nomedia
-      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yamusic-nomedia
+      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-nomedia
       env:
         GOOS: linux
         GOARCH: amd64
     - name: Upload linux-amd64-nomedia
       uses: svenstaro/upload-release-action@v2
       with:
-        file: yamusic-nomedia
+        file: yatui-nomedia
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true
 
+  build-windows:
+    name: Release windows binaries
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Go
+      uses: actions/setup-go@v5
+
     - name: Build windows-amd64
-      run: go build -trimpath -ldflags="-w -s" -o yamusic.exe
+      run: go build -trimpath -ldflags="-w -s" -o yatui-windows-amd64.exe
       env:
         GOOS: windows
         GOARCH: amd64
     - name: Upload windows-amd64
       uses: svenstaro/upload-release-action@v2
       with:
-        file: yamusic.exe
+        file: yatui-windows-amd64.exe
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true
 
     - name: Build windows-amd64-nomedia
-      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yamusic-nomedia.exe
+      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-windows-amd64-nomedia.exe
       env:
         GOOS: windows
         GOARCH: amd64
-    - name: Upload windows-amd64
+    - name: Upload windows-amd64-nomedia
       uses: svenstaro/upload-release-action@v2
       with:
-        file: yamusic-nomedia.exe
+        file: yatui-windows-amd64-nomedia.exe
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true

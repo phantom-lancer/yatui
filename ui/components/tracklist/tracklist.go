@@ -3,9 +3,9 @@ package tracklist
 import (
 	"strings"
 
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/ui/model"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/ui/model"
+	"github.com/phantom-lancer/yatui/ui/style"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"

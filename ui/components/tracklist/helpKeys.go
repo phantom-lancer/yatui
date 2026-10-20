@@ -2,7 +2,7 @@ package tracklist
 
 import (
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 type helpKeyMap struct {

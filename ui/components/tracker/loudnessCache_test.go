@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dece2183/yamusic-tui/cache"
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/cache"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 // prepareLoudnessCache points the cache to an empty directory and clears the

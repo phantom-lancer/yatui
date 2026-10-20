@@ -1,180 +1,268 @@
+# yatui
 
-# yamusic-tui (custom build, v0.3)
-
-Personal fork of [dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui) with mouse support
-(click, hover, right-click context menu), global F6/F7/F8 hotkeys and a few QoL fixes.
-Kept as a rollback point for the local build.
-
-# yamusic-tui
-
-[![GitHub License](https://img.shields.io/github/license/dece2183/yamusic-tui)](https://github.com/DECE2183/yamusic-tui/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/dece2183/yamusic-tui)](https://github.com/dece2183/yamusic-tui/releases)
-
-An unofficial Yandex Music terminal client.<br>
-Based on [yandex-music-open-api](https://github.com/acherkashin/yandex-music-open-api).
+**yatui** — терминальный клиент Яндекс Музыки для Windows, Linux и macOS.
+Написан на Go поверх [Bubble Tea](https://github.com/charmbracelet/bubbletea),
+играет музыку напрямую с серверов Яндекс Музыки, поддерживает мышь, оформление
+и нормализацию громкости по стандарту ITU-R BS.1770 (EBU R128).
 
 ![screenshot](.assets/screenshot.png)
 
-### Requirements
+Это публичный форк [dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui)
+— автор оригинала и исходный проект. Всё, что здесь есть сверх оригинала,
+перечислено в разделе [Что добавлено](#что-добавлено).
 
-To use this client, you should have a valid Yandex Music account and an access token.<br>
-The easiest way to get a token is to use a browser extension ([Chrome](https://chrome.google.com/webstore/detail/yandex-music-token/lcbjeookjibfhjjopieifgjnhlegmkib), [Firefox](https://addons.mozilla.org/en-US/firefox/addon/yandex-music-token/)).
+---
 
-### Implemented features
+## Содержание
 
- - [x] Player
-    - [x] Play/pause
-    - [x] Switch track
-    - [x] Play progress
-    - [x] Rewind
-    - [x] Like/unlike
-    - [x] Share
-    - [x] Synced lyrics
- - [ ] Radio
-    - [x] My wave
-    - [ ] Radio configuration
- - [ ] Likes
-    - [x] Liked tracks
-    - [ ] Liked playlists
-    - [ ] Liked artists
-    - [x] Liked albums
- - [x] Playlists
-    - [x] Display user playlists
-    - [x] Play from playlist
-    - [x] Add/remove track to playlist
-    - [x] Create/remove playlist
-    - [x] Rename playlist
- - [x] Caching
- - [x] Search
- - [ ] Landing
+- [Установка на Windows 10/11](#установка-на-windows-1011)
+- [Установка из исходников](#установка-из-исходников)
+- [Первый запуск и авторизация](#первый-запуск-и-авторизация)
+- [Горячие клавиши](#горячие-клавиши)
+- [Что добавлено](#что-добавлено)
+- [Настройки и конфиг](#настройки-и-конфиг)
+- [Нормализация громкости](#нормализация-громкости)
+- [Настройка «Моей волны»](#настройка-моей-волны)
+- [Last.fm](#lastfm)
+- [Системные медиа-клавиши](#системные-медиа-клавиши)
+- [Сборка](#сборка)
+- [Лицензия](#лицензия)
 
-## Installation
+---
 
-If you have Go installed on your PC:
+## Установка на Windows 10/11
+
+Нужен только сам exe — Go, Python и прочее не требуется.
+
+1. Скачайте `yatui-windows-amd64.exe` со страницы [Releases](https://github.com/phantom-lancer/yatui/releases/latest)
+   (приложите exe к релизу и переименуйте его в `yatui.exe`).
+2. Положите файл в любую удобную папку, например `C:\Program Files\yatui\`,
+   либо просто в папку загрузок.
+3. Запустите `yatui.exe`.
+
+Чтобы запускать из любой папки, добавьте папку с exe в `PATH`
+(«Свойства системы → Дополнительно → Переменные среды → Path → Изменить»).
+
+> Если Windows ругается на «неизвестный издатель» — это обычное
+> предупреждение для файлов без цифровой подписи. Нажмите «Подробнее» →
+> «Выполнить в любом случае». Либо соберите exe сами (раздел [Сборка](#сборка)) —
+> тогда он будет подписан вашим ключом.
+
+### Где лежат настройки
+
+```
+%USERPROFILE%\.config\yamusic-tui\config.yaml   настройки и токен
+%LOCALAPPDATA%\yamusic-tui\                     кэш треков и измеренной громкости
+%TEMP%\yamusic-tui\yamusic-tui.log              лог приложения
+```
+
+Файл `config.yaml` создаётся сам при первом запуске — руками его править
+не нужно, всё настраивается прямо в приложении (клавиша `F9`).
+
+### Возможные проблемы
+
+| Симптом | Что делать |
+|---|---|
+| Не запускается, «отказано в доступе» | exe лежит в защищённой папке (`Program Files`) — скопируйте в `%LOCALAPPDATA%\Programs` или в папку загрузок |
+| Звука нет | проверьте, что Яндекс Музыка играет в браузере; в конфиге есть `volume` и `buffer-size-ms` (при заиканиях увеличьте его) |
+| Ошибка загрузки трека | у Яндекс Музыки бывают кратковременные сбои, трек просто пропустится |
+
+---
+
+## Установка из исходников
+
+Нужен [Go](https://go.dev/dl/) 1.21 или новее:
 
 ```bash
-go install github.com/dece2183/yamusic-tui@latest
+go install github.com/phantom-lancer/yatui@latest
 ```
 
-Or just download the binary from the [releases](https://github.com/DECE2183/yamusic-tui/releases/latest) page.
+Бинарник появится в `$(go env GOPATH)/bin/yatui` (`%USERPROFILE%\go\bin\yatui.exe` на Windows).
 
-Also available [Gentoo Linux ebuild](https://github.com/microcai/gentoo-zh/pull/7387/files).
+Для сборки без поддержки системных медиа-клавиш добавьте тег `nomedia`:
 
-## Configuration
+```bash
+go build -tags nomedia
+```
 
-The configuration file is located at `~/.config/yamusic-tui/config.yaml`.
+---
 
-This is the default configuration which is automatically created after the first login:
+## Первый запуск и авторизация
+
+1. Запустите `yatui` — откроется окно входа.
+2. Нажмите «Получить токен» (или `enter`): откроется браузер с Яндекс Музыкой.
+3. Войдите под своим аккаунтом и скопируйте OAuth-токен из адресной строки
+   (всё после `access_token=`).
+4. Вставьте токен в приложение и нажмите `enter`.
+
+Токен можно взять и расширением для браузера:
+[Chrome](https://chromewebstore.google.com/detail/yandex-music-token/lcbjeookjibfhjjopieifgjnhlegmkib),
+[Firefox](https://addons.mozilla.org/ru/firefox/addon/yandex-music-token/).
+
+Токен хранится в `config.yaml` в открытом виде — не публикуйте этот файл.
+
+---
+
+## Горячие клавиши
+
+Нажмите `?` в приложении — откроется окно со всеми клавишами.
+Основные:
+
+| Клавиша | Действие |
+|---|---|
+| `space` | пауза / продолжить |
+| `→` `←` | следующий / предыдущий трек |
+| `ctrl+→` `ctrl+←` | перемотка |
+| `↑` `↓` | курсор по списку треков |
+| `pgup` `pgdn` | страница списка |
+| `enter` | plays / подтверждение |
+| `l` / `L` | нравится (в списке / в плеере) |
+| `a` | добавить в плейлист |
+| `ctrl+s` | поделиться треком |
+| `ctrl+f` | поиск |
+| `q` | очередь |
+| `c` | кэш треков |
+| `F6` `F7` `F8` | громче / стоп / перемотка назад (работают всегда) |
+| `F9` | настройки |
+| `F10` | настройка «Моей волны» |
+| `?` | все горячие клавиши |
+| `ctrl+q` / `ctrl+c` | выход |
+
+Мышь: клик по треку — играть, правая кнопка — контекстное меню,
+колесо — прокрутка и громкость, наведение на трек — выбор,
+наведение на левую панель — только подсветка пункта.
+
+Все клавиши переназначаются в конфиге (раздел `controls`).
+
+---
+
+## Что добавлено
+
+По сравнению с оригиналом [dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui):
+
+**Мышь**
+- полная поддержка мыши: клик, наведение (выделение), правая кнопка с
+  контекстным меню, средняя кнопка, колесо мыши;
+- кликабельные кнопки плеера, полоса прогресса и громкости;
+- диалог настроек и окно «Моей волны» управляются мышью.
+
+**Интерфейс**
+- окно «Настроить Мою волну» (занятие, характер, настроение, язык);
+- отдельное окно горячих клавиш вместо подсказок в панелях;
+- кнопка настроек в левой панели, всплывающие уведомления (тосты);
+- очередь и менеджер кэша, темы оформления, Last.fm-скробблинг.
+
+**Звук**
+- нормализация громкости по ITU-R BS.1770 / EBU R128 (измерение локальное:
+  Яндекс больше не присылает R128-коэффициент);
+- точное измерение громкости всего трека во время воспроизведения с
+  запоминанием результата — при повторном прослушивании трек стартует сразу
+  с правильной громкостью;
+- защита от перегрузки: пик никогда не обрезается, громкость приглушается.
+
+**Надёжность**
+- битый или пустой трек не роняет приложение — он просто пропускается;
+- приложение переживает обрывы связи и пустые ответы сервера.
+
+---
+
+## Настройки и конфиг
+
+`F9` открывает окно настроек: громкость и её шаг, размер буфера, время
+перемотки, нормализация, тема, текст песни, Last.fm, кэш и очередь.
+Всё сохраняется в `config.yaml` автоматически.
+
+Ключи можно переназначить в секции `controls`, например:
 
 ```yaml
-token: <your yandex music token>
-buffer-size-ms: 80
-rewind-duration-s: 5
-volume: 0.5
-volume-step: 0.05
-show-errors: false
-show-lyrics: false
-cache-tracks: likes # none/likes/all
-cache-dir: ""
-proxy: "" # proxy server URL; if not specified, uses the HTTP_PROXY and HTTPS_PROXY environment variables
-ssl-certs: [] # path to certificate files in PEM format
-search:
-    artists: true
-    popular: false
-    albums: false
-    playlists: false
 controls:
-   quit: ctrl+q,ctrl+c
-   apply: enter
-   cancel: esc
-   cursor-up: up
-   cursor-down: down
-   show-all-keys: ?
-   playlists-up: ctrl+up
-   playlists-down: ctrl+down
-   playlists-rename: ctrl+r
-   playlists-hide: ctrl+b
-   tracks-next-page: pgup
-   tracks-previous-page: pgdown
-   tracks-like: l
-   tracks-artist: ctrl+j
-   tracks-add-to-playlist: a
-   tracks-remove-from-playlist: ctrl+a
-   tracks-share: ctrl+s
-   tracks-shuffle: ctrl+x
-   tracks-search: ctrl+f
-   tracks-back: backspace
-   tracks-hide: ctrl+t
-   player-pause: space
-   player-next: right
-   player-previous: left
-   player-rewind-forward: ctrl+right
-   player-rewind-backward: ctrl+left
-   player-like: L
-   player-cache: S
-   player-vol-up: +,=
-   player-vol-down: '-'
-   player-toggle-lyrics: t
-   player-hide: ctrl+p
-style:
-   volume-indicator-width: 16
-   volume-indicator-autohide-at: 64
-   side-panel-width: 32
-   side-panel-autohide-at: 96
-   search-modal-width: 56
-   icons:
-      play: ▶
-      stop: ■
-      liked: 💛
-      not-liked: 🤍
-      cached: 💿
-      lyrics-dot: •
-      volume-off: 🔇
-      volume-low: 🔈
-      volume-mid: 🔉
-      volume-high: 🔊
-   colors:
-      accent: '#FC0'
-      error: '#F33'
-      border: '#444'
-      background: '#6b6b6b'
-      playlist-selection: '#4a3c00'
-      active-text: '#EEE'
-      normal-text: '#CCC'
-      inactive-text: '#888'
-      track-title-text: '#dcdcdc'
-      track-version-text: '#999'
-      track-artist-text: '#bbb'
-      lyrics-previous: '#444'
-      lyrics-current: '#EEE'
-      lyrics-next: '#777'
+    quit: ctrl+q,ctrl+c
+    settings: f9
+    wave-settings: f10
+    show-all-kyes: '?'
 ```
 
-By default, all cached tracks are stored in the system cache directory. `~/.cache/yamusic-tui` on Linux and `~/AppData/Local/yamusic-tui` on Windows.
-You can change this behavior by specifying a preferred cache directory in the `cache-dir` field.
+Список клавиш можно расширить (через запятую): `quit: ctrl+q,ctrl+c`.
 
-You can list multiple keys for the same control, separated by commas.
+---
 
-Increase the `buffer-size-ms` if you have glitches or stutters.
+## Нормализация громкости
 
-## System media controls
+Яндекс Музыка перестала присылать R128-коэффициент, поэтому громкость считается
+локально: трек измеряется по стандарту ITU-R BS.1770 (K-weighting, окна
+400 мс с перекрытием 75 %, абсолютный и относительный пороги) и приводится к
+−14 LUFS.
+
+- При первом прослушивании измеряется начало трека — это даёт небольшую
+  задержку перед стартом.
+- Пока трек играет, измеряется он целиком, и результат запоминается:
+  при следующем прослушивании трек стартует сразу и с точной громкостью.
+- Если измерение ошибочно (тихое начало, громкая середина), срабатывает
+  защита: громкость приглушается вместо того, чтобы обрезать пик.
+
+Отключается в настройках (`F9` → «Нормализация»).
+
+---
+
+## Настройка «Моей волны»
+
+`F10` (или правая кнопка мыши по пункту «my wave» → «Настроить Мою волну»)
+открывает окно в духе Яндекс Музыки:
+
+- **По занятию** — Просыпаюсь, Бег, Тренируюсь, За рулём, В дороге, Работаю,
+  Вечеринка, Свидание, Для влюблённых, Секс, Засыпаю, Для концентрации;
+- **По характеру** — Любимое, Незнакомое, Популярное, Любое;
+- **По настроению** — Бодрое, Весёлое, Спокойное, Грустное, Любое;
+- **По языку** — Русский, Иностранный, Любой, Без слов.
+
+Список берётся из API Яндекс Музыки, так что он всегда соответствует
+официальному приложению. Выбор сохраняется в конфиге и применяется к новым
+сессиям радио; текущий трек не прерывается.
+
+---
+
+## Last.fm
+
+В настройках (`F9` → «Last.fm») можно включить скробблинг. Нужен API key и
+secret с [last.fm/api/account/create](https://www.last.fm/api/account/create),
+после чего приложение само проведёт авторизацию в браузере. События
+«сейчас играет» и «проиграно» отправляются автоматически.
+
+---
+
+## Системные медиа-клавиши
+
+Поддерживаются интерфейсы системных медиа-клавиш: `SMTC` в Windows 10/11
+(отображается в панели «Сейчас играет»), `MPRIS` в Linux и
+`MPRemoteCommandCenter` в macOS.
 
 ![win11-smtc-example](.assets/smtc-win11.png)
 
-Yamusic-tui supports the system media control interfaces: `MPRIS` on Linux, `SMTC` on Windows, and `MPRemoteCommandCenter` on macOS.
+Функцию можно отключить при сборке тегом `nomedia` или скачав релиз с
+суффиксом `-nomedia`.
 
-This feature is enabled by default, however for compatibility reasons you can disable it by building the app with the `nomedia` tag or downloading a release with the `-nomedia` suffix.
+---
 
-```bash
-go build -tags='nomedia'
-```
-
-### macOS
-
-On macOS, media key support uses `MPRemoteCommandCenter` and `MPNowPlayingInfoCenter`, which display the current track in the system Now Playing widget and respond to media keys / Touch Bar controls.
-
-Due to a Go linker limitation, the binary must be built with an external linker to include the required `LC_UUID` load command (enforced by dyld on macOS 15+):
+## Сборка
 
 ```bash
-go build -ldflags="-linkmode=external" -o yamusic-tui .
+git clone https://github.com/phantom-lancer/yatui.git
+cd yatui
+go build -o yatui .
 ```
+
+Для Windows без перекрёстной сборки:
+
+```bash
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-w -s" -o yatui.exe .
+```
+
+---
+
+## Лицензия
+
+GPL-3.0 — как у оригинального проекта
+[dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui), автор которого
+— [DECE2183](https://github.com/DECE2183). Текст лицензии — в [LICENSE](LICENSE).
+
+Проект не связан с Яндексом и не одобрен им.

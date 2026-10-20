@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
 )
 
 // stationsCache holds the fetched Yandex Music stations.

@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
 )
 
 // TestSidebarHoverOnlyHighlights makes sure that the pointer over the sidebar

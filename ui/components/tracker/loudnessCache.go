@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/dece2183/yamusic-tui/cache"
-	"github.com/dece2183/yamusic-tui/log"
+	"github.com/phantom-lancer/yatui/cache"
+	"github.com/phantom-lancer/yatui/log"
 )
 
 // _LOUDNESS_CACHE_FILE keeps the measured loudness of the tracks between the

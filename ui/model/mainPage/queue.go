@@ -6,10 +6,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/ui/helpers"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/ui/helpers"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // queueModel is the state of the queue dialog: the selection and the first

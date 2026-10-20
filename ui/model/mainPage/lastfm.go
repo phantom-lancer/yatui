@@ -7,11 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/lastfm"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/ui/helpers"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/lastfm"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/ui/helpers"
 )
 
 const (

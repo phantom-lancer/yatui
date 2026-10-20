@@ -4,11 +4,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/ui/components/playlist"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/ui/components/playlist"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // _WAVE_SETTINGS_WIDTH is the width of the window with the wave settings.

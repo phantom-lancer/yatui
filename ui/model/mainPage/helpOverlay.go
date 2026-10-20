@@ -5,8 +5,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 const (

@@ -4,14 +4,14 @@ import (
 	"crypto/x509"
 	"os"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
-	"github.com/dece2183/yamusic-tui/log"
-	"github.com/dece2183/yamusic-tui/media"
-	"github.com/dece2183/yamusic-tui/ui/model"
-	loginpage "github.com/dece2183/yamusic-tui/ui/model/loginPage"
-	mainpage "github.com/dece2183/yamusic-tui/ui/model/mainPage"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/log"
+	"github.com/phantom-lancer/yatui/media"
+	"github.com/phantom-lancer/yatui/ui/model"
+	loginpage "github.com/phantom-lancer/yatui/ui/model/loginPage"
+	mainpage "github.com/phantom-lancer/yatui/ui/model/mainPage"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 func main() {

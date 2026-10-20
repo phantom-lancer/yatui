@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/dece2183/yamusic-tui/ui/helpers"
-	"github.com/dece2183/yamusic-tui/ui/style"
+	"github.com/phantom-lancer/yatui/ui/helpers"
+	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // _TOAST_TITLE_LIMIT keeps a toast to a single short line.

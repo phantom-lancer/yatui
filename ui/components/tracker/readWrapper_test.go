@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/dece2183/yamusic-tui/stream"
+	"github.com/phantom-lancer/yatui/stream"
 )
 
 // TestReadWrapperSurvivesABrokenStream makes sure that a track with a broken

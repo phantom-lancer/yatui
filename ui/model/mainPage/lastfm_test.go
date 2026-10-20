@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dece2183/yamusic-tui/api"
-	"github.com/dece2183/yamusic-tui/config"
+	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
 )
 
 // fakeScrobbler records the calls instead of talking to Last.fm.
