@@ -29,6 +29,10 @@ func (m *Model) loadStations() []api.StationDesc {
 		return stationsCache
 	}
 
+	if m.client == nil {
+		return nil
+	}
+
 	stations, err := m.client.Stations("ru")
 	if err != nil {
 		log.Print(log.LVL_ERROR, "failed to obtain the stations list: %s", err)

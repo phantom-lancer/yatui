@@ -83,6 +83,11 @@ func load() (Config, error) {
 		newConfig.LastFM = &lastfm
 	}
 
+	if newConfig.Wave == nil {
+		wave := *defaultConfig.Wave
+		newConfig.Wave = &wave
+	}
+
 	if newConfig.Controls == nil {
 		controls := *defaultConfig.Controls
 		newConfig.Controls = &controls

@@ -139,7 +139,7 @@ func (m *Model) loadMyWave(wg *sync.WaitGroup, block *menuBlock) {
 		return
 	}
 
-	session, err := m.client.RotorNewSession(api.MyWaveId)
+	session, err := m.client.RotorNewSessionWithSeeds(m.waveSeeds())
 	if err != nil {
 		block.err = err
 		return

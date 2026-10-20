@@ -274,6 +274,37 @@ type Station struct {
 			} `json:"possibleValues"`
 		} `json:"diversity"`
 	} `json:"restrictions"`
+
+	// Restrictions2 are the options the user can tune the station with: the
+	// character, the mood and the language of the tracks.
+	Restrictions2 struct {
+		Diversity struct {
+			Type           string          `json:"type"`
+			Name           string          `json:"name"`
+			PossibleValues []StationOption `json:"possibleValues"`
+		} `json:"diversity"`
+		MoodEnergy struct {
+			Type           string          `json:"type"`
+			Name           string          `json:"name"`
+			PossibleValues []StationOption `json:"possibleValues"`
+		} `json:"moodEnergy"`
+		Language struct {
+			Type           string          `json:"type"`
+			Name           string          `json:"name"`
+			PossibleValues []StationOption `json:"possibleValues"`
+		} `json:"language"`
+	} `json:"restrictions2"`
+}
+
+// StationOption is one of the values a restriction of a station can take.
+type StationOption struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	// SerializedSeed is the seed that switches the station to this value.
+	SerializedSeed string `json:"serializedSeed"`
+	// Unspecified marks the value that means "no restriction at all".
+	Unspecified bool   `json:"unspecified"`
+	ImageUrl    string `json:"imageUrl"`
 }
 
 type StationDesc struct {
@@ -284,6 +315,12 @@ type StationDesc struct {
 		Mood      float32 `json:"mood"`
 		Energy    float32 `json:"energy"`
 	} `json:"settings"`
+	// Settings2 are the settings the station is tuned with right now.
+	Settings2 struct {
+		Language   string `json:"language"`
+		MoodEnergy string `json:"moodEnergy"`
+		Diversity  string `json:"diversity"`
+	} `json:"settings2"`
 	RupTitle       string `json:"rupTitle"`
 	RupDescription string `json:"rupDescription"`
 }

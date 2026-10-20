@@ -450,7 +450,16 @@ func (m *Model) mouseRightClick(x, y int) tea.Cmd {
 
 // openPlaylistMenu builds the context menu of a sidebar playlist.
 func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
-	items := make([]contextMenuItem, 0, 2)
+	items := make([]contextMenuItem, 0, 3)
+
+	if pl.Kind == playlist.MYWAVE {
+		items = append(items, contextMenuItem{
+			label: "Настроить Мою волну",
+			action: func(m *Model) tea.Cmd {
+				return m.openWaveSettings()
+			},
+		})
+	}
 
 	if pl.Rotor {
 		items = append(items, contextMenuItem{

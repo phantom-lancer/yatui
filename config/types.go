@@ -84,17 +84,18 @@ type Style struct {
 
 type Controls struct {
 	// Main control
-	Quit        *Key `yaml:"quit"`
-	Apply       *Key `yaml:"apply"`
-	Cancel      *Key `yaml:"cancel"`
-	CursorUp    *Key `yaml:"cursor-up"`
-	CursorDown  *Key `yaml:"cursor-down"`
-	Reload      *Key `yaml:"reload"`
-	ShowAllKeys *Key `yaml:"show-all-kyes"`
-	Theme       *Key `yaml:"theme"`
-	Settings    *Key `yaml:"settings"`
-	Queue       *Key `yaml:"queue"`
-	Cache       *Key `yaml:"cache"`
+	Quit         *Key `yaml:"quit"`
+	Apply        *Key `yaml:"apply"`
+	Cancel       *Key `yaml:"cancel"`
+	CursorUp     *Key `yaml:"cursor-up"`
+	CursorDown   *Key `yaml:"cursor-down"`
+	Reload       *Key `yaml:"reload"`
+	ShowAllKeys  *Key `yaml:"show-all-kyes"`
+	Theme        *Key `yaml:"theme"`
+	Settings     *Key `yaml:"settings"`
+	WaveSettings *Key `yaml:"wave-settings"`
+	Queue        *Key `yaml:"queue"`
+	Cache        *Key `yaml:"cache"`
 	// Playlists control
 	PlaylistsUp     *Key `yaml:"playlists-up"`
 	PlaylistsDown   *Key `yaml:"playlists-down"`
@@ -133,6 +134,16 @@ type Normalization struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// Wave holds the settings of the main wave. The values are the ones the
+// Yandex Music uses: the activity the wave follows, the character of the
+// tracks, their mood and their language. An empty value means "no restriction".
+type Wave struct {
+	Activity   string `yaml:"activity"`
+	Diversity  string `yaml:"diversity"`
+	MoodEnergy string `yaml:"mood-energy"`
+	Language   string `yaml:"language"`
+}
+
 // LastFM holds the Last.fm credentials. The api key and secret are created by
 // the user at https://www.last.fm/api/account/create, the session key comes
 // from the web auth flow in the settings screen.
@@ -167,6 +178,7 @@ type Config struct {
 	Search         *Search        `yaml:"search"`
 	Normalization  *Normalization `yaml:"normalization"`
 	LastFM         *LastFM        `yaml:"lastfm"`
+	Wave           *Wave          `yaml:"wave"`
 	Controls       *Controls      `yaml:"controls"`
 	Style          *Style         `yaml:"style"`
 }
@@ -192,6 +204,7 @@ var defaultConfig = Config{
 	LastFM: &LastFM{
 		Enabled: false,
 	},
+	Wave: &Wave{},
 	Controls: &Controls{
 		Quit:                     NewKey("ctrl+q,ctrl+c"),
 		Apply:                    NewKey("enter"),
@@ -202,6 +215,7 @@ var defaultConfig = Config{
 		ShowAllKeys:              NewKey("?"),
 		Theme:                    NewKey("ctrl+y"),
 		Settings:                 NewKey("f9"),
+		WaveSettings:             NewKey("f10"),
 		Queue:                    NewKey("q"),
 		Cache:                    NewKey("c"),
 		PlaylistsUp:              NewKey("ctrl+up"),

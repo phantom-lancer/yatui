@@ -70,6 +70,13 @@ type Model struct {
 	helpOffset   int
 	helpRect     Rect
 
+	// the window with the settings of the main wave
+	isWaveActive bool
+	wave         *waveSettingsModel
+	// waveGeneration grows with every new session of the wave: the sessions
+	// that are already on their way are dropped when it changes
+	waveGeneration int64
+
 	manualQueue   []api.Track
 	queue         *queueModel
 	isQueueActive bool
@@ -117,6 +124,9 @@ func (m *Model) Run() error {
 }
 
 func (m *Model) Send(msg tea.Msg) {
+	if m.program == nil {
+		return
+	}
 	go m.program.Send(msg)
 }
 
@@ -138,6 +148,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// the help window captures the keys while it is open
 	if cmd, handled := m.helpControl(message); handled {
+		return m, cmd
+	}
+
+	// the wave settings window captures the keys while it is open
+	if cmd, handled := m.waveControl(message); handled {
 		return m, cmd
 	}
 
@@ -245,6 +260,17 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCacheList(msg)
 		return m, nil
 
+	case waveStationsMsg:
+		if m.wave != nil {
+			m.wave.setStations(msg.stations)
+			m.wave.loading = false
+		}
+		return m, nil
+
+	case waveSessionMsg:
+		m.applyWaveSession(msg)
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, tea.ClearScreen
@@ -259,6 +285,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if config.Current.Controls.Settings.Contains(msg.String()) {
 			m.toggleSettings()
 			cmds = append(cmds, tea.ClearScreen)
+			break
+		}
+		if config.Current.Controls.WaveSettings.Contains(msg.String()) {
+			cmds = append(cmds, m.openWaveSettings())
 			break
 		}
 		cmds = append(cmds, m.playerHotkey(msg.String()))
@@ -289,6 +319,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case controls.Settings.Contains(keypress):
 			m.toggleSettings()
 			cmds = append(cmds, tea.ClearScreen)
+		case controls.WaveSettings.Contains(keypress):
+			cmds = append(cmds, m.openWaveSettings())
 		case controls.Queue.Contains(keypress):
 			m.toggleQueue()
 			cmds = append(cmds, tea.ClearScreen)
@@ -517,6 +549,10 @@ func (m *Model) viewBody() string {
 
 	if m.isHelpActive {
 		return m.placeHelp()
+	}
+
+	if m.isWaveActive && m.wave != nil {
+		return m.placeWaveSettings()
 	}
 
 	if m.isQueueActive && m.queue != nil {

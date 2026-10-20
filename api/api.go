@@ -431,11 +431,18 @@ func (client *YaMusicClient) StationFeedback(feedType string, stationId StationI
 }
 
 func (client *YaMusicClient) RotorNewSession(id StationId) (tracks StationTracks, err error) {
+	return client.RotorNewSessionWithSeeds([]string{id.String()})
+}
+
+// RotorNewSessionWithSeeds starts a radio session with the given seeds. The
+// seeds of the main wave carry its settings: the character, the mood and the
+// language of the tracks.
+func (client *YaMusicClient) RotorNewSessionWithSeeds(seeds []string) (tracks StationTracks, err error) {
 	body := map[string]interface{}{
 		"includeTracksInResponse": true,
 		"includeWaveModel":        false,
 		"interactive":             true,
-		"seeds":                   []string{id.String()},
+		"seeds":                   seeds,
 	}
 	tracks, _, err = postRequestJson[StationTracks](client.token,
 		"/rotor/session/new",

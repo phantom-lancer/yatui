@@ -47,6 +47,7 @@ func helpSections() []helpSection {
 				{controls.ShowAllKeys, "это окно"},
 				{controls.Theme, "сменить тему"},
 				{controls.Settings, "настройки"},
+				{controls.WaveSettings, "настроить волну"},
 				{controls.Queue, "очередь"},
 				{controls.Cache, "кэш"},
 			},
