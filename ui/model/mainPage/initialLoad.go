@@ -280,11 +280,15 @@ func (m *Model) loadLikedArtists(wg *sync.WaitGroup, block *menuBlock) {
 		return
 	}
 
-	const maxArtists = 10
+	const (
+		maxArtists         = 10
+		maxTracksPerArtist = 20
+		maxTracks          = 100
+	)
 
 	ids := make([]string, 0, 64)
 	for i, info := range liked {
-		if i >= maxArtists {
+		if i >= maxArtists || len(ids) >= maxTracks {
 			break
 		}
 
@@ -299,7 +303,12 @@ func (m *Model) loadLikedArtists(wg *sync.WaitGroup, block *menuBlock) {
 			continue
 		}
 
-		ids = append(ids, popular.Tracks...)
+		for j, track := range popular.Tracks {
+			if j >= maxTracksPerArtist || len(ids) >= maxTracks {
+				break
+			}
+			ids = append(ids, track)
+		}
 	}
 
 	tracks := make([]api.Track, 0)
