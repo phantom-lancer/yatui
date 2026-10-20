@@ -17,6 +17,8 @@ import (
 type queueModel struct {
 	index  int
 	offset int
+	// dragFrom is the row the mouse took hold of, -1 when nothing is dragged.
+	dragFrom int
 }
 
 // queueLayout is where the rows of the window ended up on the screen.
@@ -288,8 +290,14 @@ func (m *Model) queueMouse(msg tea.MouseMsg) tea.Cmd {
 		if msg.Button != tea.MouseButtonNone {
 			break
 		}
-		if row, ok := layout.rowAt(msg.X, msg.Y); ok && row != m.queue.index {
-			m.queue.index = row
+		if row, ok := layout.rowAt(msg.X, msg.Y); ok {
+			if m.queue.dragFrom >= 0 {
+				// the track is being dragged: the selection follows the
+				// pointer, so the place it is dropped at is visible
+				m.queue.index = row
+			} else if row != m.queue.index {
+				m.queue.index = row
+			}
 		}
 
 	case tea.MouseActionPress:
@@ -300,18 +308,56 @@ func (m *Model) queueMouse(msg tea.MouseMsg) tea.Cmd {
 		if !ok {
 			return nil
 		}
+
+		entries := m.queueEntries()
+		if row < len(entries) && entries[row].manual {
+			// the track is taken hold of: it can be dragged to another place
+			m.queue.dragFrom = row
+			m.queue.index = row
+			return nil
+		}
+
 		if row == m.queue.index {
 			// the second click plays the track
-			entries := m.queueEntries()
 			m.playQueueEntry(entries, row)
 			m.isQueueActive = false
 			m.queue = nil
 			return tea.ClearScreen
 		}
 		m.queue.index = row
+
+	case tea.MouseActionRelease:
+		m.finishQueueDrag()
 	}
 
 	return nil
+}
+
+// finishQueueDrag puts the dragged track at the place it was dropped at.
+func (m *Model) finishQueueDrag() {
+	if m.queue == nil {
+		return
+	}
+
+	from, to := m.queue.dragFrom, m.queue.index
+	m.queue.dragFrom = -1
+
+	if from < 0 || to < 0 || from == to {
+		return
+	}
+	if from >= len(m.manualQueue) || to >= len(m.manualQueue) {
+		return
+	}
+
+	track := m.manualQueue[from]
+	m.manualQueue = append(m.manualQueue[:from], m.manualQueue[from+1:]...)
+
+	rest := make([]api.Track, 0, len(m.manualQueue))
+	rest = append(rest, m.manualQueue[to:]...)
+	m.manualQueue = append(m.manualQueue[:to], append([]api.Track{track}, rest...)...)
+
+	m.queue.index = to
+	m.showToast("Очередь переставлена")
 }
 
 // queueView renders the queue dialog.

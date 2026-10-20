@@ -35,8 +35,13 @@ func TestSidebarHoverOnlyHighlights(t *testing.T) {
 
 	m.mouseMotion(layout.playlist.X+10, layout.playlist.Y+y)
 
-	if got := playlists.Index(); got != 1 {
-		t.Errorf("the item under the cursor was not marked: index = %d", got)
+	if got := playlists.Hovered(); got != 1 {
+		t.Errorf("the item under the cursor is %d, want 1", got)
+	}
+	// the selection stays where it is: the click must play the playlist that
+	// is really open
+	if got := playlists.Index(); got != 0 {
+		t.Errorf("the selection moved: index = %d", got)
 	}
 	if len(m.toasts) != 0 {
 		t.Errorf("the hover switched the panel: %v", m.toasts)
@@ -185,22 +190,18 @@ func TestHelpWindowShowsEveryBinding(t *testing.T) {
 }
 
 // TestPlaylistHighlightDoesNotSwitch keeps the sidebar honest: the method the
-// pointer uses only moves the cursor.
+// pointer uses only marks the item.
 func TestPlaylistHighlightDoesNotSwitch(t *testing.T) {
 	playlists := testPlaylists(t, []string{"my wave", "liked tracks"})
 
-	if !playlists.Highlight(1) {
-		t.Fatal("the item was not marked")
-	}
-	if got := playlists.Index(); got != 1 {
-		t.Errorf("index = %d, want 1", got)
+	playlists.SetHovered(1)
+	if got := playlists.Hovered(); got != 1 {
+		t.Fatalf("the item under the cursor is %d, want 1", got)
 	}
 
-	// an item that is not there changes nothing
-	before := playlists.Index()
-	playlists.Highlight(42)
-	if got := playlists.Index(); got != before {
-		t.Errorf("the cursor moved to a missing item: %d", got)
+	// the selection is not moved by the pointer
+	if got := playlists.Index(); got != 0 {
+		t.Errorf("the selection moved: index = %d", got)
 	}
 }
 

@@ -14,6 +14,8 @@ import (
 type ItemDelegate struct {
 	programm *tea.Program
 	layout   *listLayout
+	// hovered is the item under the mouse pointer
+	hovered *int
 }
 
 func (d ItemDelegate) Height() int {
@@ -69,6 +71,12 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		rendered = style.SideBoxItemStyle.Render(name)
 	default:
 		rendered = style.SideBoxSelItemStyle.Render(name)
+	}
+
+	// the item under the mouse pointer is marked, but the selection is not
+	// moved: a click must always play the playlist that is really open
+	if d.hovered != nil && *d.hovered == index && index != m.Index() {
+		rendered = style.SideBoxHoverItemStyle.Render(name)
 	}
 
 	if d.layout != nil {

@@ -142,6 +142,8 @@ type Wave struct {
 	Diversity  string `yaml:"diversity"`
 	MoodEnergy string `yaml:"mood-energy"`
 	Language   string `yaml:"language"`
+	// Summary describes the chosen options the way the user sees them.
+	Summary string `yaml:"summary"`
 }
 
 // LastFM holds the Last.fm credentials. The api key and secret are created by

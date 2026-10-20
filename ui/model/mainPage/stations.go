@@ -70,6 +70,15 @@ func (m *Model) loadStations() []api.StationDesc {
 	return stationsCache
 }
 
+// cachedStations returns the stations that are already fetched. It never
+// goes to the network: the names of the settings are needed on every repaint.
+func cachedStations() []api.StationDesc {
+	stationsMu.Lock()
+	defer stationsMu.Unlock()
+
+	return stationsCache
+}
+
 // openStationPicker shows the window with the available stations.
 func (m *Model) openStationPicker(x, y int) tea.Cmd {
 	if len(m.loadStations()) == 0 {

@@ -158,6 +158,18 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmds []tea.Cmd
 	)
 
+	// the notifications are pruned before anything else: no dialog and no
+	// menu may swallow the timer, or the messages would stay on the screen
+	if _, ok := message.(toastExpiredMsg); ok {
+		m.toastTimerPending = false
+		m.expireToasts()
+		if len(m.toasts) > 0 {
+			// the messages were refreshed while the timer was running
+			m.scheduleToastExpiry()
+		}
+		return m, nil
+	}
+
 	// the help window captures the keys while it is open
 	if cmd, handled := m.helpControl(message); handled {
 		return m, cmd
@@ -266,15 +278,6 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case LoadingMsg:
 		m.isLoading = false
 		return m, model.Cmd(playlist.CURSOR_UP)
-
-	case toastExpiredMsg:
-		m.toastTimerPending = false
-		m.expireToasts()
-		if len(m.toasts) > 0 {
-			// the messages were refreshed while the timer was running
-			m.scheduleToastExpiry()
-		}
-		return m, nil
 
 	case cacheListMsg:
 		m.applyCacheList(msg)
@@ -402,11 +405,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				cmd = m.openAlbum(m.tracklist.Index())
 				cmds = append(cmds, cmd)
 			} else {
-				m.playSelectedPlaylist(m.tracklist.Index())
+				m.playSelectedPlaylist(m.playlistTrackIndex(m.tracklist.Index()))
 			}
 		case tracklist.CURSOR_UP, tracklist.CURSOR_DOWN:
 			currentPlaylist := m.playlists.SelectedItem()
-			cursorIndex := m.tracklist.Index()
+			cursorIndex := m.playlistTrackIndex(m.tracklist.Index())
 			currentPlaylist.SelectedTrack = cursorIndex
 			cmd = m.playlists.SetItem(m.playlists.Index(), currentPlaylist)
 			cmds = append(cmds, cmd)
@@ -445,7 +448,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.Send(search.UPDATE_SUGGESTIONS)
 		case tracklist.REMOVE_FROM_PLAYLIST:
 			selectedPlaylist := m.playlists.SelectedItem()
-			cmd = m.removeFromPlaylist(selectedPlaylist, m.tracklist.Index())
+			cmd = m.removeFromPlaylist(selectedPlaylist, m.playlistTrackIndex(m.tracklist.Index()))
 			cmds = append(cmds, cmd)
 		case tracklist.SEARCH:
 			m.searchDialog.Title = "Search"

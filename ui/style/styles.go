@@ -68,8 +68,10 @@ var (
 	SideBoxItemStyle         lipgloss.Style
 	SideBoxSelItemStyle      lipgloss.Style
 	SideBoxInactiveItemStyle lipgloss.Style
-	SideBoxSubItemStyle      lipgloss.Style
-	SideBoxSelSubItemStyle   lipgloss.Style
+	// SideBoxHoverItemStyle marks the item under the mouse pointer.
+	SideBoxHoverItemStyle  lipgloss.Style
+	SideBoxSubItemStyle    lipgloss.Style
+	SideBoxSelSubItemStyle lipgloss.Style
 )
 
 var (
@@ -188,6 +190,9 @@ func Apply(style *config.Style) {
 	SideBoxInactiveItemStyle = SideBoxItemStyle.
 		Foreground(InactiveTextColor).
 		Padding(0, 0, 0, 2)
+	// SideBoxHoverItemStyle marks the item under the mouse pointer.
+	SideBoxHoverItemStyle = SideBoxItemStyle.
+		Foreground(AccentColor)
 	SideBoxSubItemStyle = SideBoxItemStyle.
 		Padding(0, 0, 0, 4)
 	SideBoxSelSubItemStyle = SideBoxSelItemStyle.

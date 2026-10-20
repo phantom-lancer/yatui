@@ -78,7 +78,7 @@ func (m *Model) addPlaylistControl(msg search.Control) tea.Cmd {
 			return nil
 		}
 
-		selectedTrack := &selectedPlaylist.Tracks[m.tracklist.Index()]
+		selectedTrack := &selectedPlaylist.Tracks[m.playlistTrackIndex(m.tracklist.Index())]
 		pl, err := m.client.AddToPlaylist(foundPlaylist.Kind, foundPlaylist.Revision, len(foundPlaylist.Tracks), selectedTrack.Id)
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to add track [%s] to playlist [%s]: %s", selectedTrack.Id, foundPlaylist.Name, err)
@@ -245,7 +245,7 @@ func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
 	pl.CurrentTrack = currentTrackIndex
 	cmds = append(cmds, m.playlists.SetItem(m.playlists.Index(), pl))
 	cmds = append(cmds, m.tracklist.SetItems(trackList))
-	m.tracklist.Select(selectedTrackIndex)
+	m.tracklist.Select(m.tracklistIndex(selectedTrackIndex))
 	m.showToast(fmt.Sprintf("Перемешано: %d", len(tracks)))
 
 	if m.currentPlaylistIndex >= 0 && pl.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
@@ -302,9 +302,18 @@ func (m *Model) displayPlaylist(pl *playlist.Item) {
 			itemlist[i] = tracklist.NewAlbumItem(&pl.Albums[i])
 		}
 	} else {
-		itemlist = make([]tracklist.Item, len(pl.Tracks))
+		itemlist = make([]tracklist.Item, 0, len(m.manualQueue)+len(pl.Tracks))
+
+		// the tracks the user put in the queue are shown at the top of the
+		// list: they are played right after the current track
+		for i := range m.manualQueue {
+			item := tracklist.NewItem(&m.manualQueue[i])
+			item.IsNext = true
+			itemlist = append(itemlist, item)
+		}
+
 		for i := range pl.Tracks {
-			itemlist[i] = tracklist.NewItem(&pl.Tracks[i])
+			itemlist = append(itemlist, tracklist.NewItem(&pl.Tracks[i]))
 		}
 		if pl.Rotor && len(itemlist) > 0 {
 			itemlist[len(itemlist)-1].IsSuggestion = true
@@ -312,11 +321,15 @@ func (m *Model) displayPlaylist(pl *playlist.Item) {
 	}
 
 	m.tracklist.SetItems(itemlist)
-	m.tracklist.Select(pl.SelectedTrack)
+	m.tracklist.Select(pl.SelectedTrack + m.nextCount())
 
 	switch pl.Kind {
 	case playlist.MYWAVE:
 		m.tracklist.Title = "My wave"
+		// the active settings of the wave are shown right next to its name
+		if summary := waveSettingsSummary(); summary != "" {
+			m.tracklist.Title += " · " + summary
+		}
 	case playlist.LIKES:
 		m.tracklist.Title = "Liked tracks"
 	case playlist.LOCAL:
@@ -364,7 +377,7 @@ func (m *Model) indicateCurrentTrackPlaying(playing bool) {
 
 	tracks := m.tracklist.Items()
 	if currentPlaylist.CurrentTrack < len(tracks) {
-		track := tracks[currentPlaylist.CurrentTrack]
+		track := tracks[m.tracklistIndex(currentPlaylist.CurrentTrack)]
 		track.IsPlaying = playing
 		m.tracklist.SetItem(currentPlaylist.CurrentTrack, track)
 	}

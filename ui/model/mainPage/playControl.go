@@ -97,10 +97,10 @@ func (m *Model) prevTrack() {
 		}
 
 		selectedPlaylist := m.playlists.SelectedItem()
-		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.tracklist.Index() == currentPlaylist.CurrentTrack
+		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.playlistTrackIndex(m.tracklist.Index()) == currentPlaylist.CurrentTrack
 		currentPlaylist.CurrentTrack = m.playQueueTrackIndex
 		if shouldFollow {
-			m.tracklist.Select(currentPlaylist.CurrentTrack)
+			m.tracklist.Select(m.tracklistIndex(currentPlaylist.CurrentTrack))
 			currentPlaylist.SelectedTrack = currentPlaylist.CurrentTrack
 		}
 
@@ -145,10 +145,10 @@ func (m *Model) nextTrack() {
 		}
 
 		selectedPlaylist := m.playlists.SelectedItem()
-		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.tracklist.Index() == currentPlaylist.CurrentTrack
+		shouldFollow := currentPlaylist.IsSame(selectedPlaylist) && m.playlistTrackIndex(m.tracklist.Index()) == currentPlaylist.CurrentTrack
 		currentPlaylist.CurrentTrack = m.playQueueTrackIndex
 		if shouldFollow {
-			m.tracklist.Select(currentPlaylist.CurrentTrack)
+			m.tracklist.Select(m.tracklistIndex(currentPlaylist.CurrentTrack))
 			currentPlaylist.SelectedTrack = currentPlaylist.CurrentTrack
 		}
 

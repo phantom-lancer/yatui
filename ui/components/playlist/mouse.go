@@ -92,10 +92,15 @@ func (m *Model) ClickItem(index int) bool {
 	return true
 }
 
-// Highlight marks the item at the given index without switching anything:
-// the pointer over the sidebar only shows which playlist it points at.
-func (m *Model) Highlight(index int) bool {
-	return m.ClickItem(index)
+// SetHovered marks the item under the mouse pointer. The selection is not
+// moved: the pointer only shows which item the click will hit.
+func (m *Model) SetHovered(index int) {
+	m.hovered = index
+}
+
+// Hovered returns the item under the mouse pointer.
+func (m *Model) Hovered() int {
+	return m.hovered
 }
 
 // CursorUp moves the cursor to the previous selectable item.

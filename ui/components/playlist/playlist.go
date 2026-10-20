@@ -58,16 +58,21 @@ type Model struct {
 	footer      string
 	footerHover bool
 	footerRect  Rect
+	// hovered is the item under the mouse pointer. It is only marked: the
+	// selection stays where it is, so a click always plays the playlist that
+	// is really open.
+	hovered int
 }
 
 func New(p *tea.Program, title string) *Model {
 	m := &Model{
 		program: p,
 		helpMap: newHelpMap(),
+		hovered: -1,
 	}
 
 	controls := config.Current.Controls
-	m.list = list.New([]list.Item{}, ItemDelegate{programm: p, layout: &m.layout}, 512, 512)
+	m.list = list.New([]list.Item{}, ItemDelegate{programm: p, layout: &m.layout, hovered: &m.hovered}, 512, 512)
 	m.list.Title = title
 	m.list.SetShowStatusBar(false)
 	m.list.Styles.Title = m.list.Styles.Title.Foreground(style.AccentColor).UnsetBackground().Padding(0)

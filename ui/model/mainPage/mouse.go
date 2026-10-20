@@ -246,7 +246,11 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 		index := m.tracklist.ItemAt(x-m.mouse.tracklist.X, y-m.mouse.tracklist.Y)
 		if index >= 0 && index != m.tracklist.Index() {
 			m.tracklist.Select(index)
-			return m.selectTrack(index)
+			// the tracks of the queue are not a part of the playlist: they
+			// do not change the selection
+			if playlistIndex := m.playlistTrackIndex(index); playlistIndex >= 0 {
+				return m.selectTrack(playlistIndex)
+			}
 		}
 		return nil
 	}
@@ -255,9 +259,11 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 	// switched by a click or by the keyboard
 	if m.mouse.playlist.Contains(x, y) {
 		index := m.playlists.ItemAt(x-m.mouse.playlist.X, y-m.mouse.playlist.Y)
-		if index >= 0 && index != m.playlists.Index() {
-			m.playlists.Highlight(index)
+		if index != m.playlists.Hovered() {
+			m.playlists.SetHovered(index)
 		}
+	} else if m.playlists.Hovered() != -1 {
+		m.playlists.SetHovered(-1)
 	}
 
 	return nil
@@ -310,7 +316,13 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 			return m.likeTrackAt(index)
 		}
 		if index := m.tracklist.ItemAt(rowX, rowY); index >= 0 {
-			return m.playTrackAt(index)
+			playlistIndex := m.playlistTrackIndex(index)
+			if playlistIndex < 0 {
+				// a track of the queue: it is played right away
+				m.playQueueEntry(m.queueEntries(), index)
+				return nil
+			}
+			return m.playTrackAt(playlistIndex)
 		}
 	}
 
@@ -328,7 +340,7 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 func (m *Model) togglePlayback() tea.Cmd {
 	if m.tracker.IsStoped() {
 		// nothing is loaded yet, start the selected track
-		return m.playTrackAt(m.tracklist.Index())
+		return m.playTrackAt(m.playlistTrackIndex(m.tracklist.Index()))
 	}
 	if m.tracker.IsPlaying() {
 		return model.Cmd(tracker.PAUSE)
@@ -345,7 +357,7 @@ func (m *Model) playTrackAt(index int) tea.Cmd {
 		return nil
 	}
 
-	m.tracklist.Select(index)
+	m.tracklist.Select(m.tracklistIndex(index))
 	cmd := m.selectTrack(index)
 
 	if m.albumListActive() {
@@ -413,7 +425,7 @@ func (m *Model) likeTrackAt(index int) tea.Cmd {
 	}
 
 	return tea.Batch(
-		m.selectTrack(index),
+		m.selectTrack(m.playlistTrackIndex(index)),
 		m.likeTrack(items[index].Track, selectedPlaylist),
 	)
 }
@@ -606,7 +618,7 @@ func (m *Model) mouseScroll(x, y int, up bool) tea.Cmd {
 		if cmd == nil {
 			return nil
 		}
-		return tea.Batch(cmd, m.selectTrack(m.tracklist.Index()))
+		return tea.Batch(cmd, m.selectTrack(m.playlistTrackIndex(m.tracklist.Index())))
 	}
 
 	if m.mouse.playlist.Contains(x, y) {

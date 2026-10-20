@@ -1,6 +1,8 @@
 package mainpage
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -565,6 +567,12 @@ func (m *Model) storeWaveSettings(activity, diversity, mood, language string) {
 	config.Current.Wave.Diversity = diversity
 	config.Current.Wave.MoodEnergy = mood
 	config.Current.Wave.Language = language
+
+	summary := m.waveDescription()
+	if summary == "обычная" {
+		summary = ""
+	}
+	config.Current.Wave.Summary = summary
 }
 
 // applyWaveSession replaces the session of the main wave with the new one:
@@ -592,10 +600,6 @@ func (m *Model) applyWaveSession(msg waveSessionMsg) {
 		}
 
 		tracks := make([]api.Track, 0, len(msg.session.Sequence)+1)
-		// the track that plays right now stays at the head of the queue
-		if m.currentPlaylistIndex == i && m.tracker.CurrentTrack() != nil {
-			tracks = append(tracks, *m.tracker.CurrentTrack())
-		}
 		for _, entry := range msg.session.Sequence {
 			tracks = append(tracks, entry.Track)
 		}
@@ -606,9 +610,12 @@ func (m *Model) applyWaveSession(msg waveSessionMsg) {
 		m.playlists.SetItem(i, item)
 
 		if m.currentPlaylistIndex == i {
-			m.playQueue = tracks
-			m.playQueueTrackIndex = 0
+			// the list is refreshed, so the new settings are shown right
+			// next to the name of the wave
 			m.displayPlaylist(item)
+
+			// the wave starts right away: the new settings have to be heard
+			m.playSelectedPlaylist(0)
 		}
 
 		m.showToast("Моя волна: " + m.waveDescription())
@@ -619,7 +626,7 @@ func (m *Model) applyWaveSession(msg waveSessionMsg) {
 // waveDescription returns a short description of the chosen settings.
 func (m *Model) waveDescription() string {
 	if m.wave == nil {
-		return "обычная"
+		return waveSettingsSummary()
 	}
 
 	parts := make([]string, 0, 4)
@@ -634,17 +641,56 @@ func (m *Model) waveDescription() string {
 		return "обычная"
 	}
 
-	return joinStrings(parts, ", ")
+	return strings.Join(parts, " • ")
 }
 
-// joinStrings joins the parts with the given separator.
-func joinStrings(parts []string, separator string) string {
-	result := ""
-	for i, part := range parts {
-		if i > 0 {
-			result += separator
-		}
-		result += part
+// waveSettingsSummary describes the settings of the wave that are in the
+// config. The names are the ones the user sees in the window.
+func waveSettingsSummary() string {
+	wave := config.Current.Wave
+	if wave == nil {
+		return ""
 	}
-	return result
+	if wave.Summary != "" {
+		return wave.Summary
+	}
+
+	values := []string{wave.Activity, wave.Diversity, wave.MoodEnergy, wave.Language}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		parts = append(parts, waveOptionName(value))
+	}
+
+	return strings.Join(parts, " • ")
+}
+
+// waveOptionName returns the name of a setting of the wave. The stations list
+// knows every option with the name the user sees.
+func waveOptionName(value string) string {
+	for _, station := range cachedStations() {
+		if station.Station.Id.Type == "activity" && station.Station.Id.Tag == value {
+			return station.Station.Name
+		}
+
+		for _, option := range station.Station.Restrictions2.Diversity.PossibleValues {
+			if option.Value == value {
+				return option.Name
+			}
+		}
+		for _, option := range station.Station.Restrictions2.MoodEnergy.PossibleValues {
+			if option.Value == value {
+				return option.Name
+			}
+		}
+		for _, option := range station.Station.Restrictions2.Language.PossibleValues {
+			if option.Value == value {
+				return option.Name
+			}
+		}
+	}
+
+	return value
 }

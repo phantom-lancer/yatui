@@ -11,6 +11,9 @@ type Item struct {
 	Artists      string
 	IsPlaying    bool
 	IsSuggestion bool
+	// IsNext marks the tracks the user put in the queue: they are shown at
+	// the top of the list and are not a part of the playlist.
+	IsNext bool
 }
 
 func NewItem(track *api.Track) Item {

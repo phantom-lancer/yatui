@@ -83,7 +83,12 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			trackArtistStyle lipgloss.Style
 		)
 
-		if item.IsSuggestion {
+		if item.IsNext {
+			// the track is in the queue: it will be played next
+			trackTitleStyle = style.TrackTitleStyle.Foreground(style.AccentColor)
+			trackArtistStyle = style.TrackArtistStyle.Foreground(style.InactiveTextColor)
+			trackTitle += "» "
+		} else if item.IsSuggestion {
 			trackTitleStyle = style.TrackTitleStyle.Foreground(style.InactiveTextColor)
 			trackArtistStyle = style.TrackArtistStyle.Foreground(style.InactiveTextColor)
 			trackTitle += "~ "
