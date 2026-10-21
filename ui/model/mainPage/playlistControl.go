@@ -377,8 +377,12 @@ func (m *Model) indicateCurrentTrackPlaying(playing bool) {
 
 	tracks := m.tracklist.Items()
 	if currentPlaylist.CurrentTrack < len(tracks) {
-		track := tracks[m.tracklistIndex(currentPlaylist.CurrentTrack)]
+		index := m.tracklistIndex(currentPlaylist.CurrentTrack)
+		if index >= len(tracks) {
+			return
+		}
+		track := tracks[index]
 		track.IsPlaying = playing
-		m.tracklist.SetItem(currentPlaylist.CurrentTrack, track)
+		m.tracklist.SetItem(index, track)
 	}
 }

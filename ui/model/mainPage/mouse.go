@@ -219,11 +219,15 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	}
 
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		return m.mouseClick(msg.X, msg.Y)
+		return m.mousePress(msg.X, msg.Y)
 	}
 
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonRight {
 		return m.mouseRightClick(msg.X, msg.Y)
+	}
+
+	if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+		return m.mouseRelease(msg.X, msg.Y)
 	}
 
 	return nil
@@ -244,6 +248,11 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 	// tracks list
 	if m.mouse.tracklist.Contains(x, y) {
 		index := m.tracklist.ItemAt(x-m.mouse.tracklist.X, y-m.mouse.tracklist.Y)
+		if m.tracklist.Dragging() {
+			// the track follows the mouse
+			m.tracklist.DragTo(index)
+			return nil
+		}
 		if index >= 0 && index != m.tracklist.Index() {
 			m.tracklist.Select(index)
 			// the tracks of the queue are not a part of the playlist: they
@@ -270,10 +279,10 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 }
 
 //
-// left button click
+// left button: the press takes hold of a track, the release plays it
 //
 
-func (m *Model) mouseClick(x, y int) tea.Cmd {
+func (m *Model) mousePress(x, y int) tea.Cmd {
 	// settings button
 	if m.mouse.settings.Contains(x, y) {
 		m.toggleSettings()
@@ -307,23 +316,16 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 		return m.likePlayingTrack()
 	}
 
-	// tracks list
+	// tracks list: the track under the cursor is taken hold of, it is
+	// played or moved when the button is released
 	if m.mouse.tracklist.Contains(x, y) {
 		rowX := x - m.mouse.tracklist.X
 		rowY := y - m.mouse.tracklist.Y
 
-		if index := m.tracklist.LikeAt(rowX, rowY); index >= 0 {
-			return m.likeTrackAt(index)
-		}
 		if index := m.tracklist.ItemAt(rowX, rowY); index >= 0 {
-			playlistIndex := m.playlistTrackIndex(index)
-			if playlistIndex < 0 {
-				// a track of the queue: it is played right away
-				m.playQueueEntry(m.queueEntries(), index)
-				return nil
-			}
-			return m.playTrackAt(playlistIndex)
+			m.tracklist.BeginDrag(index)
 		}
+		return nil
 	}
 
 	// playlists
@@ -331,6 +333,80 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 		index := m.playlists.ItemAt(x-m.mouse.playlist.X, y-m.mouse.playlist.Y)
 		if m.playlists.ClickItem(index) {
 			m.followSelectedPlaylist()
+		}
+	}
+
+	return nil
+}
+
+// mouseRelease finishes the drag of a track. A click without a movement plays
+// the track.
+func (m *Model) mouseRelease(x, y int) tea.Cmd {
+	if !m.mouse.tracklist.Contains(x, y) {
+		// the button was released outside of the list: the drag is over
+		m.tracklist.EndDrag()
+		return nil
+	}
+
+	rowX := x - m.mouse.tracklist.X
+	rowY := y - m.mouse.tracklist.Y
+	index := m.tracklist.ItemAt(rowX, rowY)
+
+	if m.tracklist.EndDrag() {
+		// the tracks were moved: the new order belongs to the playlist
+		return m.applyTracklistOrder()
+	}
+
+	// the button was pressed and released in the same place: it is a click
+	if index < 0 {
+		return nil
+	}
+
+	if likeIndex := m.tracklist.LikeAt(rowX, rowY); likeIndex >= 0 {
+		return m.likeTrackAt(likeIndex)
+	}
+
+	playlistIndex := m.playlistTrackIndex(index)
+	if playlistIndex < 0 {
+		// a track of the queue: it is played right away
+		m.playQueueEntry(m.queueEntries(), index)
+		return nil
+	}
+
+	return m.playTrackAt(playlistIndex)
+}
+
+// applyTracklistOrder saves the new order of the tracks in the playlist.
+func (m *Model) applyTracklistOrder() tea.Cmd {
+	selected := m.playlists.SelectedItem()
+	if selected == nil {
+		return nil
+	}
+
+	items := m.tracklist.Items()
+	tracks := make([]api.Track, 0, len(items))
+	for _, item := range items {
+		// the tracks of the queue are not a part of the playlist
+		if item.IsNext || item.Track == nil {
+			continue
+		}
+		tracks = append(tracks, *item.Track)
+	}
+
+	selected.Tracks = tracks
+	m.playlists.SetItem(m.playlists.Index(), selected)
+
+	// the queue follows the new order, the track that plays now keeps its
+	// place in it
+	if m.currentPlaylistIndex == m.playlists.Index() {
+		m.playQueue = tracks
+		if current := m.tracker.CurrentTrack(); current != nil {
+			for i, track := range tracks {
+				if track.Id == current.Id {
+					m.playQueueTrackIndex = i
+					break
+				}
+			}
 		}
 	}
 

@@ -66,7 +66,7 @@ func TestSidebarClickSwitchesThePlaylist(t *testing.T) {
 	m.mouse = layout
 
 	y := findLine(t, playlistView, "albums")
-	m.mouseClick(layout.playlist.X+10, layout.playlist.Y+y)
+	m.mousePress(layout.playlist.X+10, layout.playlist.Y+y)
 
 	if got := playlists.Index(); got != 2 {
 		t.Errorf("the clicked item was not selected: index = %d", got)

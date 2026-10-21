@@ -43,6 +43,7 @@ func (m *Model) addNext(track *api.Track) {
 		return
 	}
 	m.manualQueue = append([]api.Track{*track}, m.manualQueue...)
+	m.refreshTrackList()
 	m.showToast("Далее: " + track.Title)
 }
 
@@ -52,7 +53,22 @@ func (m *Model) addToQueue(track *api.Track) {
 		return
 	}
 	m.manualQueue = append(m.manualQueue, *track)
+	m.refreshTrackList()
 	m.showToast("В очередь: " + track.Title)
+}
+
+// refreshTrackList shows the tracks of the queue at the top of the list.
+func (m *Model) refreshTrackList() {
+	if m.playlists == nil || m.tracklist == nil {
+		return
+	}
+	if m.currentPlaylistIndex < 0 || m.currentPlaylistIndex >= len(m.playlists.Items()) {
+		return
+	}
+
+	item := m.playlists.Items()[m.currentPlaylistIndex]
+	m.displayPlaylist(item)
+	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 }
 
 // queueEntries returns the manual queue followed by the upcoming tracks of

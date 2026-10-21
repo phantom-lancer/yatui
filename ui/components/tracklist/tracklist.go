@@ -43,14 +43,20 @@ type Model struct {
 	Title         string
 	Shufflable    bool
 	layout        listLayout
+	// dragIndex is the row the mouse took hold of, -1 when nothing is
+	// dragged. dragStart is the row the drag began at.
+	dragIndex int
+	dragStart int
 }
 
 func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool, cacheMap *map[string]bool) *Model {
 	m := &Model{
-		program: p,
-		help:    help.New(),
-		helpMap: newHelpMap(),
-		Title:   "Tracks",
+		program:   p,
+		help:      help.New(),
+		helpMap:   newHelpMap(),
+		Title:     "Tracks",
+		dragIndex: -1,
+		dragStart: -1,
 	}
 
 	controls := config.Current.Controls
@@ -222,6 +228,60 @@ func (m *Model) Index() int {
 
 func (m *Model) Select(index int) {
 	m.list.Select(index)
+}
+
+// BeginDrag takes hold of the track under the cursor: it is moved with the
+// mouse from now on.
+func (m *Model) BeginDrag(index int) bool {
+	if index < 0 || index >= len(m.list.Items()) {
+		return false
+	}
+
+	m.dragIndex = index
+	m.dragStart = index
+	return true
+}
+
+// Dragging reports whether a track is being dragged right now.
+func (m *Model) Dragging() bool {
+	return m.dragIndex >= 0
+}
+
+// DragTo moves the dragged track to the row under the cursor: the track
+// follows the mouse and the others shift.
+func (m *Model) DragTo(index int) {
+	if m.dragIndex < 0 || index < 0 || index == m.dragIndex {
+		return
+	}
+
+	items := m.list.Items()
+	if index >= len(items) {
+		return
+	}
+
+	dragged := items[m.dragIndex]
+
+	rest := make([]list.Item, 0, len(items))
+	rest = append(rest, items[:m.dragIndex]...)
+	rest = append(rest, items[m.dragIndex+1:]...)
+
+	moved := make([]list.Item, 0, len(items))
+	moved = append(moved, rest[:index]...)
+	moved = append(moved, dragged)
+	moved = append(moved, rest[index:]...)
+
+	m.list.SetItems(moved)
+	m.dragIndex = index
+}
+
+// EndDrag finishes the drag and reports whether the tracks were moved.
+func (m *Model) EndDrag() bool {
+	moved := m.dragIndex >= 0 && m.dragIndex != m.dragStart
+
+	m.dragIndex = -1
+	m.dragStart = -1
+
+	return moved
 }
 
 func (m *Model) SetSize(w, h int) {

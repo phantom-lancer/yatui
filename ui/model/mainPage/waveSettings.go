@@ -184,21 +184,24 @@ func waveGroups(stations []api.StationDesc) []waveGroup {
 func (w *waveSettingsModel) setStations(stations []api.StationDesc) {
 	w.groups = waveGroups(stations)
 
-	wave := config.Current.Wave
-	if wave == nil {
-		return
+	var activity, diversity, mood, language string
+	if wave := config.Current.Wave; wave != nil {
+		activity = wave.Activity
+		diversity = wave.Diversity
+		mood = wave.MoodEnergy
+		language = wave.Language
 	}
 
 	for i := range w.groups {
 		switch w.groups[i].key {
 		case "activity":
-			w.groups[i].selectValue(wave.Activity)
+			w.groups[i].selectValue(activity)
 		case "diversity":
-			w.groups[i].selectValue(wave.Diversity)
+			w.groups[i].selectValue(diversity)
 		case "mood":
-			w.groups[i].selectValue(wave.MoodEnergy)
+			w.groups[i].selectValue(mood)
 		case "language":
-			w.groups[i].selectValue(wave.Language)
+			w.groups[i].selectValue(language)
 		}
 	}
 }
@@ -421,9 +424,12 @@ func (m *Model) waveControl(message tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		case "enter", " ":
 			if m.wave.index == len(m.wave.groups) {
+				// the settings are applied before the window is closed: the
+				// chosen options are read from it
+				cmd := m.applyWaveSettings()
 				m.isWaveActive = false
 				m.wave = nil
-				return tea.Batch(tea.ClearScreen, m.applyWaveSettings()), true
+				return tea.Batch(tea.ClearScreen, cmd), true
 			}
 			return nil, true
 		}
@@ -469,9 +475,12 @@ func (m *Model) waveMouse(msg tea.MouseMsg) tea.Cmd {
 
 		m.wave.index = row
 		if row == len(m.wave.groups) {
+			// the settings are applied before the window is closed: the
+			// chosen options are read from it
+			cmd := m.applyWaveSettings()
 			m.isWaveActive = false
 			m.wave = nil
-			return tea.Batch(tea.ClearScreen, m.applyWaveSettings())
+			return tea.Batch(tea.ClearScreen, cmd)
 		}
 
 		// the halves of the value work the way the arrows point

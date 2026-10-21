@@ -162,6 +162,9 @@ func TestWaveSettingsAreStored(t *testing.T) {
 	previous := config.Current.Wave
 	t.Cleanup(func() { config.Current.Wave = previous })
 
+	// no settings are chosen yet: the defaults are used
+	config.Current.Wave = nil
+
 	m := &Model{}
 	m.wave = &waveSettingsModel{}
 	m.wave.setStations(testStations())

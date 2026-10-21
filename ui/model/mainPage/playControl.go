@@ -122,6 +122,8 @@ func (m *Model) nextTrack() {
 		track := m.manualQueue[0]
 		m.manualQueue = m.manualQueue[1:]
 		if track.Available {
+			// the track leaves the queue: the list is refreshed
+			m.refreshTrackList()
 			m.playTrack(&track)
 			return
 		}

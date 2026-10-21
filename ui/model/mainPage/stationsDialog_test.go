@@ -15,6 +15,30 @@ import (
 func testStationList() []api.StationDesc {
 	var list []api.StationDesc
 
+	addOption := func(list *[]api.StationOption, value, name, seed string, unspecified bool) {
+		*list = append(*list, api.StationOption{
+			Value:          value,
+			Name:           name,
+			SerializedSeed: seed,
+			Unspecified:    unspecified,
+		})
+	}
+
+	// the first station carries the options of the settings, the way the API
+	// returns them
+	var first api.StationDesc
+	first.Station.Id = api.StationId{Type: "genre", Tag: "pop"}
+	first.Station.Name = "Поп"
+	addOption(&first.Station.Restrictions2.Diversity.PossibleValues, "favorite", "Любимое", "settingDiversity:favorite", false)
+	addOption(&first.Station.Restrictions2.Diversity.PossibleValues, "discover", "Незнакомое", "settingDiversity:discover", false)
+	addOption(&first.Station.Restrictions2.Diversity.PossibleValues, "default", "Любое", "settingDiversity:default", true)
+	addOption(&first.Station.Restrictions2.MoodEnergy.PossibleValues, "active", "Бодрое", "settingMoodEnergy:active", false)
+	addOption(&first.Station.Restrictions2.MoodEnergy.PossibleValues, "sad", "Грустное", "settingMoodEnergy:sad", false)
+	addOption(&first.Station.Restrictions2.MoodEnergy.PossibleValues, "all", "Любое", "settingMoodEnergy:all", true)
+	addOption(&first.Station.Restrictions2.Language.PossibleValues, "russian", "Русский", "settingLanguage:russian", false)
+	addOption(&first.Station.Restrictions2.Language.PossibleValues, "any", "Любой", "settingLanguage:any", true)
+	list = append(list, first)
+
 	add := func(kind, tag, name string) {
 		var desc api.StationDesc
 		desc.Station.Id = api.StationId{Type: kind, Tag: tag}
@@ -22,7 +46,6 @@ func testStationList() []api.StationDesc {
 		list = append(list, desc)
 	}
 
-	add("genre", "pop", "Поп")
 	add("genre", "rock", "Рок")
 	add("mood", "sad", "Грустное")
 	add("activity", "run", "Бег")
