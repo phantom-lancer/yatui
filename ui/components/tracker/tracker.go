@@ -242,10 +242,10 @@ func (m *Model) view() (string, *Regions) {
 		len(transportGap) +
 		lipgloss.Width(nextButton) +
 		len(transportGap) +
-		eqButtonWidth +
-		len(transportGap) +
 		style.TrackProgressStyle.GetPaddingLeft() +
 		volumeIndicatorWidth +
+		len(transportGap) +
+		eqButtonWidth +
 		1
 	m.progress.Width = m.width - fixedWidth
 	if m.progress.Width < 0 {
@@ -255,8 +255,7 @@ func (m *Model) view() (string, *Regions) {
 	tracker := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		prevButton, transportGap, playButton, transportGap, nextButton, transportGap,
-		eqButton, transportGap,
-		progressBlock, volumeIndicator,
+		progressBlock, volumeIndicator, transportGap, eqButton,
 	)
 
 	topOffset := 0
@@ -286,17 +285,17 @@ func (m *Model) view() (string, *Regions) {
 	prevX := contentX
 	playX := prevX + prevW + gapW
 	nextX := playX + playW + gapW
-	eqX := nextX + nextW + gapW
-	progressX := eqX + eqButtonWidth + gapW + style.TrackProgressStyle.GetPaddingLeft()
+	progressX := nextX + nextW + gapW + style.TrackProgressStyle.GetPaddingLeft()
 	volumeX := progressX - style.TrackProgressStyle.GetPaddingLeft() + lipgloss.Width(progressBlock)
+	eqX := volumeX + volumeBarX + m.volumeBar.Width + gapW
 
 	regions.PrevButton = Rect{X: prevX, Y: rowY, Width: prevW, Height: 1}
 	regions.PlayButton = Rect{X: playX, Y: rowY, Width: playW, Height: 1}
 	regions.NextButton = Rect{X: nextX, Y: rowY, Width: nextW, Height: 1}
-	regions.EQ = Rect{X: eqX, Y: rowY, Width: eqButtonWidth, Height: 1}
 	regions.Progress = Rect{X: progressX, Y: rowY, Width: m.progress.Width, Height: 1}
 	regions.Volume = Rect{X: volumeX, Y: rowY, Width: volumeIndicatorWidth, Height: 1}
 	regions.VolumeBar = Rect{X: volumeX + volumeBarX, Y: rowY, Width: m.volumeBar.Width, Height: 1}
+	regions.EQ = Rect{X: eqX, Y: rowY, Width: eqButtonWidth, Height: 1}
 	regions.Dislike = Rect{X: 0, Y: 0, Width: 0, Height: 0}
 
 	titleRowY := rowY + lipgloss.Height(progressBlock)

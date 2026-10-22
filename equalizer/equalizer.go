@@ -38,10 +38,10 @@ const (
 )
 
 // BandFrequencies are the center frequencies of the bands, in hertz.
-var BandFrequencies = [Bands]float64{31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000}
+var BandFrequencies = [Bands]float64{60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000}
 
 // BandLabels are the names of the bands, as the user sees them.
-var BandLabels = [Bands]string{"31 Гц", "62 Гц", "125 Гц", "250 Гц", "500 Гц", "1 кГц", "2 кГц", "4 кГц", "8 кГц", "16 кГц"}
+var BandLabels = [Bands]string{"60", "170", "310", "600", "1к", "3к", "6к", "12к", "14к", "16к"}
 
 // CustomPreset is the name of the preset that is shown when the user has
 // changed the bands by hand.

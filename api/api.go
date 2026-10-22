@@ -52,7 +52,7 @@ var mTLSConfig = &tls.Config{
 var httpClient = http.Client{Transport: &http.Transport{
 	TLSClientConfig:       mTLSConfig,
 	ResponseHeaderTimeout: _RESPONSE_TIMEOUT,
-}}
+}, Timeout: 15 * time.Second}
 
 func nowTimestamp() string {
 	return time.Now().Format(_TIMESTAMP_FORMAT)
