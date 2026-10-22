@@ -9,7 +9,7 @@ import (
 )
 
 // Version is shown in the top right corner of the player.
-const Version = "v0.7.1"
+const Version = "v0.7.2"
 
 // drawVersion puts the version label into the top right corner of the view.
 // It does not change the view itself: the label simply replaces the cells

@@ -38,8 +38,29 @@ type Model struct {
 	lastUpdateTime       time.Time
 	additionalKeyBindigs []key.Binding
 
+	// rendered are the rows of the list as they were drawn, and rows are the
+	// places they took on the screen.
+	rendered []renderedItem
+	rows     []searchRow
+
 	Title  string
 	Action string
+}
+
+// renderedItem is one item of the list and the place it takes.
+type renderedItem struct {
+	index  int
+	height int
+	// contentY is the offset of the text inside the rendered block
+	contentY int
+}
+
+// searchRow is a rendered item placed inside the view.
+type searchRow struct {
+	index    int
+	y        int
+	height   int
+	contentY int
 }
 
 func New() *Model {
@@ -54,7 +75,7 @@ func New() *Model {
 
 	controls := config.Current.Controls
 
-	m.list = list.New([]list.Item{}, ItemDelegate{}, 512, 512)
+	m.list = list.New([]list.Item{}, ItemDelegate{rendered: &m.rendered}, 512, 512)
 	m.list.SetShowTitle(false)
 	m.list.DisableQuitKeybindings()
 	m.list.KeyMap = list.KeyMap{
@@ -81,18 +102,82 @@ func (m *Model) View() string {
 	m.additionalKeyBindigs[0].SetHelp(m.additionalKeyBindigs[0].Help().Key, m.Action)
 	listHeight := m.height - 7
 
+	titleView := style.DialogTitleStyle.Render(m.Title)
+	inputView := style.DialogBoxStyle.MaxWidth(m.width).Render(m.input.View())
+
+	m.rendered = nil
 	listView := m.list.View()
 	if lipgloss.Height(listView) <= listHeight {
 		lastLine := strings.LastIndex(listView[:len(listView)-1], "\n")
 		listView = listView[:lastLine] + "\n" + listView[lastLine:]
 	}
 
+	// the rows of the list are placed under the title, the search field and
+	// the status bar of the list
+	m.rows = m.rows[:0]
+	y := lipgloss.Height(titleView) + lipgloss.Height(inputView)
+	if m.list.ShowTitle() {
+		y += lipgloss.Height(m.list.Styles.TitleBar.Render("x"))
+	}
+	if m.list.ShowStatusBar() {
+		y += lipgloss.Height(m.list.Styles.StatusBar.Render("x"))
+	}
+	for _, item := range m.rendered {
+		m.rows = append(m.rows, searchRow{
+			index:    item.index,
+			y:        y,
+			height:   item.height,
+			contentY: item.contentY,
+		})
+		y += item.height
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		style.DialogTitleStyle.Render(m.Title),
-		style.DialogBoxStyle.MaxWidth(m.width).Render(m.input.View()),
+		titleView,
+		inputView,
 		lipgloss.NewStyle().MaxWidth(m.width).Render(listView),
 	)
+}
+
+// ItemAt returns the index of the suggestion under the given coordinates of
+// the view, or -1 when there is none.
+func (m *Model) ItemAt(x, y int) int {
+	for _, row := range m.rows {
+		if y >= row.y+row.contentY && y < row.y+row.height {
+			return row.index
+		}
+	}
+	return -1
+}
+
+// Hover marks the suggestion under the cursor as the chosen one.
+func (m *Model) Hover(index int) {
+	if index < 0 || index >= len(m.list.Items()) {
+		return
+	}
+	m.list.Select(index)
+}
+
+// Pick takes the suggestion under the cursor. It reports whether there was
+// one.
+func (m *Model) Pick(index int) bool {
+	items := m.list.Items()
+	if index < 0 || index >= len(items) {
+		return false
+	}
+
+	item, ok := items[index].(Item)
+	if !ok {
+		return false
+	}
+
+	m.value = string(item)
+	m.list.SetItems([]list.Item{})
+	m.list.Select(0)
+	m.input.Reset()
+
+	return true
 }
 
 func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {

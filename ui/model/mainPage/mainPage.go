@@ -208,7 +208,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.isQueueActive {
 			return m, m.queueMouse(mouseMsg)
 		}
-		if m.isCacheActive {
+		if m.isSearchActive || m.isAddPlaylistActive {
+			return m, m.searchMouse(mouseMsg)
+		}
+		if m.isCacheActive || m.isRenamePlaylistActive {
 			return m, nil
 		}
 	}

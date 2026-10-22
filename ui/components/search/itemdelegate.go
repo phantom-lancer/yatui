@@ -11,7 +11,11 @@ import (
 	"github.com/phantom-lancer/yatui/ui/style"
 )
 
-type ItemDelegate struct{}
+type ItemDelegate struct {
+	// rendered collects the rows of the list as they are drawn, so the mouse
+	// can be mapped back to a suggestion.
+	rendered *[]renderedItem
+}
 
 func (d ItemDelegate) Height() int {
 	return 2
@@ -57,5 +61,14 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		}
 	}
 
-	fmt.Fprint(w, stl.Render(text))
+	rendered := stl.Render(text)
+	if d.rendered != nil {
+		*d.rendered = append(*d.rendered, renderedItem{
+			index:    index,
+			height:   lipgloss.Height(rendered),
+			contentY: stl.GetBorderTopSize(),
+		})
+	}
+
+	fmt.Fprint(w, rendered)
 }
