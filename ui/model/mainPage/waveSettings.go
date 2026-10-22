@@ -169,7 +169,7 @@ func waveGroups(stations []api.StationDesc) []waveGroup {
 	}
 
 	// the wave without an activity is the usual one
-	activities = append([]waveOption{{value: "", name: "Без занятия"}}, activities...)
+	activities = append([]waveOption{{value: "", name: "Без занятия", unspecified: true}}, activities...)
 
 	return []waveGroup{
 		{key: "activity", title: "По занятию", options: activities},
@@ -221,6 +221,17 @@ func (g *waveGroup) selectValue(value string) {
 	}
 }
 
+// reset marks the option without a restriction.
+func (g *waveGroup) reset() {
+	g.index = 0
+	for i, option := range g.options {
+		if option.unspecified {
+			g.index = i
+			return
+		}
+	}
+}
+
 // labelWidth is the width of the column with the names of the groups.
 func (w *waveSettingsModel) labelWidth() int {
 	width := 0
@@ -235,7 +246,7 @@ func (w *waveSettingsModel) labelWidth() int {
 // up moves the cursor to the previous row.
 func (w *waveSettingsModel) up() {
 	if w.index <= 0 {
-		w.index = len(w.groups)
+		w.index = w.applyRow()
 		return
 	}
 	w.index--
@@ -243,11 +254,29 @@ func (w *waveSettingsModel) up() {
 
 // down moves the cursor to the next row.
 func (w *waveSettingsModel) down() {
-	if w.index >= len(w.groups) {
+	if w.index >= w.applyRow() {
 		w.index = 0
 		return
 	}
 	w.index++
+}
+
+// resetRow is the row that puts the settings back to the default.
+func (w *waveSettingsModel) resetRow() int {
+	return len(w.groups)
+}
+
+// applyRow is the row that applies the settings.
+func (w *waveSettingsModel) applyRow() int {
+	return len(w.groups) + 1
+}
+
+// reset puts every option back to the default one: the wave is not narrowed
+// down at all.
+func (w *waveSettingsModel) reset() {
+	for i := range w.groups {
+		w.groups[i].reset()
+	}
 }
 
 // change switches the option of the selected group.
@@ -322,10 +351,19 @@ func (m *Model) waveView() string {
 		rows = append(rows, rowStyle.Render(line))
 	}
 
-	// the apply row is below the groups
+	// the reset and the apply rows are below the groups
 	rows = append(rows, "")
+
+	resetStyle := lipgloss.NewStyle().Padding(0, 1).Foreground(style.NormalTextColor)
+	if m.wave.index == m.wave.resetRow() {
+		resetStyle = resetStyle.
+			Foreground(style.InactiveTextColor).
+			Background(style.AccentColor)
+	}
+	rows = append(rows, resetStyle.Render("Сбросить к обычной волне"))
+
 	applyStyle := lipgloss.NewStyle().Padding(0, 1).Foreground(style.NormalTextColor)
-	if m.wave.index == len(m.wave.groups) {
+	if m.wave.index == m.wave.applyRow() {
 		applyStyle = applyStyle.
 			Foreground(style.InactiveTextColor).
 			Background(style.AccentColor)
@@ -341,7 +379,7 @@ func (m *Model) waveView() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		box,
-		style.DialogHelpStyle.Render("↑/↓ — выбор, ←/→ — изменить, enter — применить, esc — выход"),
+		style.DialogHelpStyle.Render("↑/↓ — выбор, ←/→ — изменить, enter — применить, r — сбросить, esc — выход"),
 	)
 }
 
@@ -372,7 +410,7 @@ func (m *Model) placeWaveSettings() string {
 		rowY:       y + box.GetBorderTopSize() + box.GetPaddingTop() + 2,
 		rowWidth:   _WAVE_SETTINGS_WIDTH,
 		labelWidth: m.wave.labelWidth(),
-		rows:       len(m.wave.groups),
+		rows:       len(m.wave.groups) + 2,
 		valid:      true,
 	}
 
@@ -423,7 +461,16 @@ func (m *Model) waveControl(message tea.Msg) (tea.Cmd, bool) {
 			m.wave.change(1)
 			return nil, true
 		case "enter", " ":
-			if m.wave.index == len(m.wave.groups) {
+			switch m.wave.index {
+			case m.wave.resetRow():
+				// everything goes back to the default
+				m.wave.reset()
+				cmd := m.applyWaveSettings()
+				m.isWaveActive = false
+				m.wave = nil
+				return tea.Batch(tea.ClearScreen, cmd), true
+
+			case m.wave.applyRow():
 				// the settings are applied before the window is closed: the
 				// chosen options are read from it
 				cmd := m.applyWaveSettings()
@@ -432,6 +479,14 @@ func (m *Model) waveControl(message tea.Msg) (tea.Cmd, bool) {
 				return tea.Batch(tea.ClearScreen, cmd), true
 			}
 			return nil, true
+
+		case "r", "R", "к", "К":
+			// everything goes back to the default
+			m.wave.reset()
+			cmd := m.applyWaveSettings()
+			m.isWaveActive = false
+			m.wave = nil
+			return tea.Batch(tea.ClearScreen, cmd), true
 		}
 
 		// the window swallows every other key
@@ -474,7 +529,16 @@ func (m *Model) waveMouse(msg tea.MouseMsg) tea.Cmd {
 		}
 
 		m.wave.index = row
-		if row == len(m.wave.groups) {
+		switch row {
+		case m.wave.resetRow():
+			// everything goes back to the default
+			m.wave.reset()
+			cmd := m.applyWaveSettings()
+			m.isWaveActive = false
+			m.wave = nil
+			return tea.Batch(tea.ClearScreen, cmd)
+
+		case m.wave.applyRow():
 			// the settings are applied before the window is closed: the
 			// chosen options are read from it
 			cmd := m.applyWaveSettings()
@@ -632,7 +696,9 @@ func (m *Model) applyWaveSession(msg waveSessionMsg) {
 	}
 }
 
-// waveDescription returns a short description of the chosen settings.
+// waveDescription returns a short description of the chosen settings. Only the
+// options that really narrow the wave down are mentioned: the ones without a
+// restriction are left out.
 func (m *Model) waveDescription() string {
 	if m.wave == nil {
 		return waveSettingsSummary()
@@ -641,7 +707,7 @@ func (m *Model) waveDescription() string {
 	parts := make([]string, 0, 4)
 	for _, key := range []string{"activity", "diversity", "mood", "language"} {
 		option := m.wave.option(key)
-		if option.name == "" {
+		if option.name == "" || option.unspecified {
 			continue
 		}
 		parts = append(parts, option.name)
@@ -653,8 +719,16 @@ func (m *Model) waveDescription() string {
 	return strings.Join(parts, " • ")
 }
 
+// _WAVE_DEFAULT_VALUES are the options without a restriction: they are not
+// worth mentioning next to the name of the wave.
+var _WAVE_DEFAULT_VALUES = map[string]bool{
+	"default": true,
+	"all":     true,
+	"any":     true,
+}
+
 // waveSettingsSummary describes the settings of the wave that are in the
-// config. The names are the ones the user sees in the window.
+// config. Only the chosen options are mentioned.
 func waveSettingsSummary() string {
 	wave := config.Current.Wave
 	if wave == nil {
@@ -667,39 +741,45 @@ func waveSettingsSummary() string {
 	values := []string{wave.Activity, wave.Diversity, wave.MoodEnergy, wave.Language}
 	parts := make([]string, 0, len(values))
 	for _, value := range values {
-		if value == "" {
+		if value == "" || _WAVE_DEFAULT_VALUES[value] {
 			continue
 		}
-		parts = append(parts, waveOptionName(value))
+		name, unrestricted := waveOptionInfo(value)
+		if unrestricted {
+			// the option without a restriction is not worth mentioning
+			continue
+		}
+		parts = append(parts, name)
 	}
 
 	return strings.Join(parts, " • ")
 }
 
-// waveOptionName returns the name of a setting of the wave. The stations list
-// knows every option with the name the user sees.
-func waveOptionName(value string) string {
+// waveOptionInfo returns the name of a setting of the wave and whether it is
+// the option without a restriction. The stations list knows every option with
+// the name the user sees.
+func waveOptionInfo(value string) (string, bool) {
 	for _, station := range cachedStations() {
 		if station.Station.Id.Type == "activity" && station.Station.Id.Tag == value {
-			return station.Station.Name
+			return station.Station.Name, value == ""
 		}
 
 		for _, option := range station.Station.Restrictions2.Diversity.PossibleValues {
 			if option.Value == value {
-				return option.Name
+				return option.Name, option.Unspecified
 			}
 		}
 		for _, option := range station.Station.Restrictions2.MoodEnergy.PossibleValues {
 			if option.Value == value {
-				return option.Name
+				return option.Name, option.Unspecified
 			}
 		}
 		for _, option := range station.Station.Restrictions2.Language.PossibleValues {
 			if option.Value == value {
-				return option.Name
+				return option.Name, option.Unspecified
 			}
 		}
 	}
 
-	return value
+	return value, false
 }

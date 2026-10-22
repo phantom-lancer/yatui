@@ -94,12 +94,41 @@ func TestWaveSettingsChangeTheValues(t *testing.T) {
 	wave.down()
 	wave.down()
 	wave.down()
-	if wave.index != len(wave.groups) {
+	wave.down()
+	if wave.index != wave.applyRow() {
 		t.Fatalf("the cursor is at %d, want the apply row", wave.index)
 	}
 	wave.down()
 	if wave.index != 0 {
 		t.Errorf("the cursor did not wrap around: %d", wave.index)
+	}
+}
+
+// TestWaveSettingsCanBeReset makes sure that the settings can be put back to
+// the default ones.
+func TestWaveSettingsCanBeReset(t *testing.T) {
+	wave := &waveSettingsModel{}
+	wave.setStations(testStations())
+
+	// something is chosen
+	wave.change(1)
+	if got := wave.option("activity").value; got != "wake-up" {
+		t.Fatalf("the activity is %q, want wake-up", got)
+	}
+
+	wave.reset()
+
+	if got := wave.option("activity").value; got != "" {
+		t.Errorf("the activity is %q, want the empty one", got)
+	}
+	if got := wave.option("diversity").value; got != "default" {
+		t.Errorf("the character is %q, want the default one", got)
+	}
+	if got := wave.option("mood").value; got != "all" {
+		t.Errorf("the mood is %q, want the default one", got)
+	}
+	if got := wave.option("language").value; got != "any" {
+		t.Errorf("the language is %q, want the default one", got)
 	}
 }
 

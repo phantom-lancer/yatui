@@ -29,6 +29,7 @@ func TestWaveSettingsAreApplied(t *testing.T) {
 	// the apply row
 	m.wave.down()
 	m.wave.down()
+	m.wave.down()
 
 	// the window is closed and the settings are applied
 	cmd, handled := m.waveControl(keyMsg("enter"))
