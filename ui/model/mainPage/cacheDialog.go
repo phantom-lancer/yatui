@@ -27,6 +27,18 @@ type cacheModel struct {
 	total   int64
 	loading bool
 	err     string
+	// layout is where the rows of the window ended up on the screen, so the
+	// mouse can be mapped back to the tracks.
+	layout cacheLayout
+}
+
+// cacheLayout is where the rendered dialog ended up on the screen.
+type cacheLayout struct {
+	x, y  int
+	width int
+	rowY  int
+	rows  int
+	valid bool
 }
 
 func loadCacheList() tea.Cmd {
@@ -264,11 +276,38 @@ func (m *Model) cacheView() string {
 		lipgloss.JoinVertical(lipgloss.Left, rows...),
 	))
 
-	return lipgloss.JoinVertical(
+	view := lipgloss.JoinVertical(
 		lipgloss.Left,
 		box,
 		style.DialogHelpStyle.Render("↑/↓ — выбрать, enter — играть, delete — удалить, esc — закрыть"),
 	)
+
+	// the window is placed in the middle of the screen: the rows are counted
+	// from its top
+	w := lipgloss.Width(view)
+	h := lipgloss.Height(view)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// the border, the padding, the title with its margin and the empty line
+	// before the tracks
+	const headerLines = 4
+	m.cache.layout = cacheLayout{
+		x:     x,
+		y:     y,
+		width: w,
+		rowY:  y + headerLines,
+		rows:  visibleEnd - m.cache.offset,
+		valid: true,
+	}
+
+	return view
 }
 
 // humanSize formats a byte count for the dialog.

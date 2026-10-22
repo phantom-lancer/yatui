@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	mp3 "github.com/dece2183/go-stream-mp3"
 	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/equalizer"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
 )
@@ -42,6 +43,8 @@ type readWrapper struct {
 	// gainDB keeps the applied correction as the bits of a float64, so the UI
 	// can read it without touching the audio thread.
 	gainDB uint64
+	// eq applies the equalizer to the decoded PCM.
+	eq *equalizer.Processor
 }
 
 func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track) error {
@@ -59,6 +62,12 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	}
 
 	w.normalization, w.measurePending = newNormalization(track)
+
+	if w.eq == nil {
+		w.eq = equalizer.New()
+	} else {
+		w.eq.Reset()
+	}
 
 	// a track that was played to the end before has its loudness measured
 	// exactly: it needs neither the analysis nor the delay it costs
@@ -206,6 +215,9 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 		}
 		w.playMeter.add(dest[:n])
 
+		// the equalizer changes the tone of the track
+		w.eq.Apply(dest[:n])
+
 		if guarded := w.normalization.apply(dest[:n]); guarded && !w.duckLogged {
 			w.duckLogged = true
 			log.Print(log.LVL_INFO, "normalization: track '%s' peak protection lowered the gain to %+.1f dB",
@@ -247,4 +259,36 @@ func (w *readWrapper) Length() int64 {
 
 func (w *readWrapper) Progress() float64 {
 	return w.trackBuffer.Progress()
+}
+
+// SampleRate returns the sample rate the track is decoded with.
+func (w *readWrapper) SampleRate() int {
+	if w.decoder == nil {
+		return equalizer.DefaultRate
+	}
+	return w.decoder.SampleRate()
+}
+
+// SetEQ turns the equalizer on or off and sets the gains of its bands.
+func (w *readWrapper) SetEQ(enabled bool, gains [equalizer.Bands]float64) {
+	if w.eq == nil {
+		w.eq = equalizer.New()
+	}
+	w.eq.Set(enabled, gains)
+}
+
+// EQ reports the current state of the equalizer.
+func (w *readWrapper) EQ() (enabled bool, gains [equalizer.Bands]float64) {
+	if w.eq == nil {
+		return false, [equalizer.Bands]float64{}
+	}
+	return w.eq.Enabled(), w.eq.Gains()
+}
+
+// SetEQRate sets the sample rate the equalizer coefficients are computed for.
+func (w *readWrapper) SetEQRate(rate int) {
+	if w.eq == nil {
+		w.eq = equalizer.New()
+	}
+	w.eq.SetRate(rate)
 }

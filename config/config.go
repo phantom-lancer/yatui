@@ -6,6 +6,8 @@ import (
 	"reflect"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/phantom-lancer/yatui/equalizer"
 )
 
 var Current Config
@@ -86,6 +88,18 @@ func load() (Config, error) {
 	if newConfig.Wave == nil {
 		wave := *defaultConfig.Wave
 		newConfig.Wave = &wave
+	}
+
+	if newConfig.Equalizer == nil {
+		equalizer := *defaultConfig.Equalizer
+		newConfig.Equalizer = &equalizer
+	} else {
+		// the gains must cover all the bands: an old config may have fewer
+		if len(newConfig.Equalizer.Gains) < equalizer.Bands {
+			gains := make([]float64, equalizer.Bands)
+			copy(gains, newConfig.Equalizer.Gains)
+			newConfig.Equalizer.Gains = gains
+		}
 	}
 
 	if newConfig.Controls == nil {

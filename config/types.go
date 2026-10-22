@@ -94,6 +94,7 @@ type Controls struct {
 	Theme        *Key `yaml:"theme"`
 	Settings     *Key `yaml:"settings"`
 	WaveSettings *Key `yaml:"wave-settings"`
+	Equalizer    *Key `yaml:"equalizer"`
 	Queue        *Key `yaml:"queue"`
 	Cache        *Key `yaml:"cache"`
 	// Playlists control
@@ -146,6 +147,19 @@ type Wave struct {
 	Summary string `yaml:"summary"`
 }
 
+// Equalizer holds the settings of the graphic equalizer: the gains of the
+// bands and the name of the preset they were taken from.
+type Equalizer struct {
+	// Enabled turns the equalizer on.
+	Enabled bool `yaml:"enabled"`
+	// Preset is the name of the preset the gains were taken from.
+	Preset string `yaml:"preset"`
+	// Gains are the corrections of the bands, in decibels. The order is
+	// the order of the bands of the equalizer: from the lowest to the
+	// highest one.
+	Gains []float64 `yaml:"gains"`
+}
+
 // LastFM holds the Last.fm credentials. The api key and secret are created by
 // the user at https://www.last.fm/api/account/create, the session key comes
 // from the web auth flow in the settings screen.
@@ -181,6 +195,7 @@ type Config struct {
 	Normalization  *Normalization `yaml:"normalization"`
 	LastFM         *LastFM        `yaml:"lastfm"`
 	Wave           *Wave          `yaml:"wave"`
+	Equalizer      *Equalizer     `yaml:"equalizer"`
 	Controls       *Controls      `yaml:"controls"`
 	Style          *Style         `yaml:"style"`
 }
@@ -207,6 +222,11 @@ var defaultConfig = Config{
 		Enabled: false,
 	},
 	Wave: &Wave{},
+	Equalizer: &Equalizer{
+		Enabled: false,
+		Preset:  "Плоский",
+		Gains:   []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	},
 	Controls: &Controls{
 		Quit:                     NewKey("ctrl+q,ctrl+c"),
 		Apply:                    NewKey("enter"),
@@ -216,8 +236,9 @@ var defaultConfig = Config{
 		Reload:                   NewKey("ctrl+\\"),
 		ShowAllKeys:              NewKey("?"),
 		Theme:                    NewKey("ctrl+y"),
-		Settings:                 NewKey("f9"),
+		Settings:                 NewKey("f11"),
 		WaveSettings:             NewKey("f10"),
+		Equalizer:                NewKey("f9"),
 		Queue:                    NewKey("q"),
 		Cache:                    NewKey("c"),
 		PlaylistsUp:              NewKey("ctrl+up"),

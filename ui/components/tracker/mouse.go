@@ -58,8 +58,10 @@ type Regions struct {
 	Volume Rect
 	// VolumeBar is the volume level bar itself
 	VolumeBar Rect
-	Like      Rect
-	Dislike   Rect
+	// EQ is the equalizer button
+	EQ      Rect
+	Like    Rect
+	Dislike Rect
 }
 
 func (r *Regions) Offset(x, y int) {
@@ -72,6 +74,7 @@ func (r *Regions) Offset(x, y int) {
 	r.Progress = r.Progress.Offset(x, y)
 	r.Volume = r.Volume.Offset(x, y)
 	r.VolumeBar = r.VolumeBar.Offset(x, y)
+	r.EQ = r.EQ.Offset(x, y)
 	r.Like = r.Like.Offset(x, y)
 	r.Dislike = r.Dislike.Offset(x, y)
 }

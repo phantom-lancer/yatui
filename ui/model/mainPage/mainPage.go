@@ -77,6 +77,9 @@ type Model struct {
 	// that are already on their way are dropped when it changes
 	waveGeneration int64
 
+	// the window with the equalizer
+	eq *eqModel
+
 	// the window with the list of the stations
 	isStationsActive bool
 	stations         *stationsDialogModel
@@ -92,6 +95,9 @@ type Model struct {
 	isQueueActive bool
 	// queueLayout is where the rows of the queue ended up on the screen.
 	queueLayout queueLayout
+
+	// renameLayout is where the rename dialog ended up on the screen.
+	renameLayout renameLayout
 
 	cache         *cacheModel
 	isCacheActive bool
@@ -180,6 +186,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// the equalizer window captures the keys while it is open
+	if cmd, handled := m.eqControl(message); handled {
+		return m, cmd
+	}
+
 	// the stations window captures the keys while it is open
 	if cmd, handled := m.stationsControl(message); handled {
 		return m, cmd
@@ -211,7 +222,13 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.isSearchActive || m.isAddPlaylistActive {
 			return m, m.searchMouse(mouseMsg)
 		}
-		if m.isCacheActive || m.isRenamePlaylistActive {
+		if m.isCacheActive {
+			return m, m.cacheMouse(mouseMsg)
+		}
+		if m.isRenamePlaylistActive {
+			return m, m.renameMouse(mouseMsg)
+		}
+		if m.eq != nil {
 			return m, nil
 		}
 	}
@@ -323,6 +340,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.openWaveSettings())
 			break
 		}
+		if config.Current.Controls.Equalizer.Contains(msg.String()) {
+			cmds = append(cmds, m.openEqualizer())
+			break
+		}
 		cmds = append(cmds, m.playerHotkey(msg.String()))
 
 	case tea.KeyMsg:
@@ -353,6 +374,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.WaveSettings.Contains(keypress):
 			cmds = append(cmds, m.openWaveSettings())
+		case controls.Equalizer.Contains(keypress):
+			cmds = append(cmds, m.openEqualizer())
 		case controls.Queue.Contains(keypress):
 			m.toggleQueue()
 			cmds = append(cmds, tea.ClearScreen)
@@ -587,6 +610,10 @@ func (m *Model) viewBody() string {
 		return m.placeWaveSettings()
 	}
 
+	if m.eq != nil {
+		return m.placeEqualizer()
+	}
+
 	if m.isStationsActive && m.stations != nil {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.stationsView())
 	}
@@ -602,7 +629,7 @@ func (m *Model) viewBody() string {
 	if m.isSearchActive || m.isAddPlaylistActive {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.searchDialog.View())
 	} else if m.isRenamePlaylistActive {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.inputDialog.View())
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renameView())
 	}
 
 	// the settings button lives at the bottom of the sidebar

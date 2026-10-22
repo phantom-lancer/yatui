@@ -10,6 +10,7 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/equalizer"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
 	"github.com/phantom-lancer/yatui/ui/helpers"
@@ -83,6 +84,9 @@ type Model struct {
 
 	// nextTitle is the track that will be played after the current one.
 	nextTitle string
+
+	// eqEnabled reports whether the equalizer changes the sound right now.
+	eqEnabled bool
 
 	regions *Regions
 }
@@ -220,6 +224,16 @@ func (m *Model) view() (string, *Regions) {
 		volumeBarX = 1 + lipgloss.Width(volumeIcon) + 1
 	}
 
+	var eqButton string
+	var eqButtonWidth int
+	if style.VolumeIndicatorWidth > 0 && m.width > style.VolumeIndicatorAutohide {
+		eqButton = style.ButtonStyle.Padding(0, 1).Margin(0).Render("EQ")
+		if m.eqEnabled {
+			eqButton = style.ActiveButtonStyle.Padding(0, 1).Margin(0).Render("EQ")
+		}
+		eqButtonWidth = lipgloss.Width(eqButton)
+	}
+
 	// the progress bar must fit between the controls and the volume indicator
 	fixedWidth := contentX +
 		lipgloss.Width(prevButton) +
@@ -227,6 +241,8 @@ func (m *Model) view() (string, *Regions) {
 		lipgloss.Width(playButton) +
 		len(transportGap) +
 		lipgloss.Width(nextButton) +
+		len(transportGap) +
+		eqButtonWidth +
 		len(transportGap) +
 		style.TrackProgressStyle.GetPaddingLeft() +
 		volumeIndicatorWidth +
@@ -239,6 +255,7 @@ func (m *Model) view() (string, *Regions) {
 	tracker := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		prevButton, transportGap, playButton, transportGap, nextButton, transportGap,
+		eqButton, transportGap,
 		progressBlock, volumeIndicator,
 	)
 
@@ -269,12 +286,14 @@ func (m *Model) view() (string, *Regions) {
 	prevX := contentX
 	playX := prevX + prevW + gapW
 	nextX := playX + playW + gapW
-	progressX := nextX + nextW + gapW + style.TrackProgressStyle.GetPaddingLeft()
+	eqX := nextX + nextW + gapW
+	progressX := eqX + eqButtonWidth + gapW + style.TrackProgressStyle.GetPaddingLeft()
 	volumeX := progressX - style.TrackProgressStyle.GetPaddingLeft() + lipgloss.Width(progressBlock)
 
 	regions.PrevButton = Rect{X: prevX, Y: rowY, Width: prevW, Height: 1}
 	regions.PlayButton = Rect{X: playX, Y: rowY, Width: playW, Height: 1}
 	regions.NextButton = Rect{X: nextX, Y: rowY, Width: nextW, Height: 1}
+	regions.EQ = Rect{X: eqX, Y: rowY, Width: eqButtonWidth, Height: 1}
 	regions.Progress = Rect{X: progressX, Y: rowY, Width: m.progress.Width, Height: 1}
 	regions.Volume = Rect{X: volumeX, Y: rowY, Width: volumeIndicatorWidth, Height: 1}
 	regions.VolumeBar = Rect{X: volumeX + volumeBarX, Y: rowY, Width: m.volumeBar.Width, Height: 1}
@@ -506,6 +525,28 @@ func (m *Model) SetVolume(v float64) {
 	config.Save()
 }
 
+// SetEQ turns the equalizer on or off and sets the gains of its bands.
+func (m *Model) SetEQ(enabled bool, gains [equalizer.Bands]float64) {
+	if m.trackWrapper == nil {
+		return
+	}
+	m.trackWrapper.SetEQ(enabled, gains)
+	m.eqEnabled = enabled
+}
+
+// EQEnabled reports whether the equalizer changes the sound right now.
+func (m *Model) EQEnabled() bool {
+	return m.eqEnabled
+}
+
+// EQ reports the current state of the equalizer.
+func (m *Model) EQ() (enabled bool, gains [equalizer.Bands]float64) {
+	if m.trackWrapper == nil {
+		return false, [equalizer.Bands]float64{}
+	}
+	return m.trackWrapper.EQ()
+}
+
 // LastGain reports the correction, in decibels, that the loudness
 // normalization applied to the current track. It is 0 when the track is
 // played as is or when nothing has been played yet.
@@ -558,6 +599,10 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 		m.paused = true
 		return false
 	}
+
+	// the equalizer coefficients are computed for the real sample rate of
+	// the track
+	m.trackWrapper.SetEQRate(m.trackWrapper.SampleRate())
 
 	m.player = m.playerContext.NewPlayer(m.trackWrapper)
 	m.player.SetVolume(0)

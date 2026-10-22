@@ -94,6 +94,7 @@ func helpSections() []helpSection {
 				{controls.PlayerVolDown, "тише"},
 				{controls.PlayerToggleLyrics, "слова"},
 				{controls.PlayerHide, "скрыть плеер"},
+				{controls.Equalizer, "эквалайзер"},
 			},
 		},
 	}

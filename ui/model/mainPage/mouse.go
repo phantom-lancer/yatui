@@ -111,6 +111,7 @@ type mouseLayout struct {
 	prev      Rect
 	play      Rect
 	next      Rect
+	eq        Rect
 	progress  Rect
 	volume    Rect
 	volumeBar Rect
@@ -191,6 +192,7 @@ func buildMouseLayout(tracklistHidden, trackerHidden bool, playlistView, trackli
 		layout.prev = toRect(regions.PrevButton.Offset(midX, trackerY))
 		layout.play = toRect(regions.PlayButton.Offset(midX, trackerY))
 		layout.next = toRect(regions.NextButton.Offset(midX, trackerY))
+		layout.eq = toRect(regions.EQ.Offset(midX, trackerY))
 		layout.progress = toRect(regions.Progress.Offset(midX, trackerY))
 		layout.volume = toRect(regions.Volume.Offset(midX, trackerY))
 		layout.volumeBar = toRect(regions.VolumeBar.Offset(midX, trackerY))
@@ -303,6 +305,9 @@ func (m *Model) mousePress(x, y int) tea.Cmd {
 
 	case m.mouse.next.Contains(x, y):
 		return model.Cmd(tracker.NEXT)
+
+	case m.mouse.eq.Contains(x, y):
+		return m.openEqualizer()
 
 	case m.mouse.progress.Contains(x, y):
 		return tea.Batch(
