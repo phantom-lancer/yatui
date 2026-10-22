@@ -214,8 +214,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return m.mouseScroll(msg.X, msg.Y, false)
 	}
 
-	if msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone {
-		return m.mouseMotion(msg.X, msg.Y)
+	if msg.Action == tea.MouseActionMotion {
+		// the motion with the button held is the drag of a track
+		if msg.Button == tea.MouseButtonNone || msg.Button == tea.MouseButtonLeft {
+			return m.mouseMotion(msg.X, msg.Y)
+		}
 	}
 
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
@@ -226,8 +229,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return m.mouseRightClick(msg.X, msg.Y)
 	}
 
-	if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
-		return m.mouseRelease(msg.X, msg.Y)
+	if msg.Action == tea.MouseActionRelease {
+		if msg.Button == tea.MouseButtonLeft || msg.Button == tea.MouseButtonNone {
+			return m.mouseRelease(msg.X, msg.Y)
+		}
 	}
 
 	return nil
@@ -323,7 +328,12 @@ func (m *Model) mousePress(x, y int) tea.Cmd {
 		rowY := y - m.mouse.tracklist.Y
 
 		if index := m.tracklist.ItemAt(rowX, rowY); index >= 0 {
-			m.tracklist.BeginDrag(index)
+			// the tracks of the queue are not a part of the playlist: they
+			// are moved in the queue window
+			items := m.tracklist.Items()
+			if index < len(items) && !items[index].IsNext {
+				m.tracklist.BeginDrag(index)
+			}
 		}
 		return nil
 	}

@@ -367,6 +367,14 @@ func (m *Model) indicateCurrentTrackPlaying(playing bool) {
 		if currentPlaylist.SelectedAlbum < 0 {
 			albums := m.tracklist.Items()
 			if m.currentAlbumIndex > -1 && m.currentAlbumIndex < len(albums) {
+				// only one album can be marked as the playing one
+				for i := range albums {
+					if i != m.currentAlbumIndex && albums[i].IsPlaying {
+						albums[i].IsPlaying = false
+						m.tracklist.SetItem(i, albums[i])
+					}
+				}
+
 				album := albums[m.currentAlbumIndex]
 				album.IsPlaying = playing
 				m.tracklist.SetItem(m.currentAlbumIndex, album)
@@ -376,13 +384,21 @@ func (m *Model) indicateCurrentTrackPlaying(playing bool) {
 	}
 
 	tracks := m.tracklist.Items()
-	if currentPlaylist.CurrentTrack < len(tracks) {
-		index := m.tracklistIndex(currentPlaylist.CurrentTrack)
-		if index >= len(tracks) {
-			return
-		}
-		track := tracks[index]
-		track.IsPlaying = playing
-		m.tracklist.SetItem(index, track)
+	index := m.tracklistIndex(currentPlaylist.CurrentTrack)
+	if index < 0 || index >= len(tracks) {
+		return
 	}
+
+	// only one track can be marked as the playing one
+	for i := range tracks {
+		if i == index || !tracks[i].IsPlaying {
+			continue
+		}
+		tracks[i].IsPlaying = false
+		m.tracklist.SetItem(i, tracks[i])
+	}
+
+	track := tracks[index]
+	track.IsPlaying = playing
+	m.tracklist.SetItem(index, track)
 }
