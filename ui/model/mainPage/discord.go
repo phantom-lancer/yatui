@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,6 +29,73 @@ type discordTickMsg struct{}
 
 func discordTickCmd() tea.Cmd {
 	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return discordTickMsg{} })
+}
+
+// The Discord pipe is owned by one background goroutine: dialing a stuck
+// Discord client must never block the UI thread.
+var (
+	discordQueue    = make(chan func(), 64)
+	discordQueueOne sync.Once
+	discordConn     *discordrpc.Client
+	discordLastKey  string
+	discordLastSent time.Time
+)
+
+func discordAsync(fn func()) {
+	discordQueueOne.Do(func() {
+		go func() {
+			for job := range discordQueue {
+				job()
+			}
+		}()
+	})
+	select {
+	case discordQueue <- fn:
+	default:
+	}
+}
+
+// discordSendAsync sends the card in the background, skipping repeats.
+func discordSendAsync(activity discordrpc.Activity, key string) {
+	discordAsync(func() {
+		if discordConn == nil || discordConn.Dead() {
+			if discordConn != nil {
+				_ = discordConn.Close()
+				discordConn = nil
+			}
+			client, err := discordrpc.Dial(discordClientID)
+			if err != nil {
+				return
+			}
+			discordConn = client
+			discordLastKey = ""
+		}
+		if key == discordLastKey && time.Since(discordLastSent) < time.Minute {
+			return
+		}
+		if err := discordConn.SetActivity(activity); err != nil {
+			log.Print(log.LVL_WARNIGN, "discord rpc: %s", err)
+			_ = discordConn.Close()
+			discordConn = nil
+			discordLastKey = ""
+			return
+		}
+		discordLastKey = key
+		discordLastSent = time.Now()
+	})
+}
+
+// discordClearAsync removes the card in the background.
+func discordClearAsync() {
+	discordAsync(func() {
+		if discordConn != nil {
+			_ = discordConn.Clear()
+			_ = discordConn.Close()
+			discordConn = nil
+		}
+		discordLastKey = ""
+		discordLastSent = time.Now()
+	})
 }
 
 // discordConfig returns the Discord settings, creating defaults on first use.
@@ -60,23 +128,6 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 		return
 	}
 
-	if m.discord == nil {
-		client, err := discordrpc.Dial(discordClientID)
-		if err != nil {
-			return
-		}
-		m.discord = client
-	} else if m.discord.Dead() {
-		_ = m.discord.Close()
-		m.discord = nil
-		m.discordKey = ""
-		client, err := discordrpc.Dial(discordClientID)
-		if err != nil {
-			return
-		}
-		m.discord = client
-	}
-
 	position := time.Duration(0)
 	stillPlaying := true
 	if m.tracker != nil {
@@ -93,33 +144,21 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 	}
 
 	activity := buildDiscordActivity(track, position, playing, stillPlaying, cfg)
-	key := discordActivityKey(activity)
-	if key == m.discordKey && time.Since(m.discordSentAt) < time.Minute {
-		// Discord drops updates that repeat too often (rate limit), so only
-		// send when something changed. A minute is the keepalive interval,
-		// so a restarted Discord gets the card back by itself.
-		m.discordTrack = track
-		return
-	}
-
-	if err := m.discord.SetActivity(activity); err != nil {
-		log.Print(log.LVL_WARNIGN, "discord rpc: %s", err)
-		_ = m.discord.Close()
-		m.discord = nil
-		m.discordKey = ""
-		return
-	}
-	m.discordKey = key
-	m.discordSentAt = time.Now()
+	key := discordActivityKey(activity, playing && stillPlaying)
 	m.discordTrack = track
+	discordSendAsync(activity, key)
 }
 
 // discordActivityKey serializes everything except the timestamps: Discord
-// counts the time itself, so a new timestamp alone is not a change.
-func discordActivityKey(activity discordrpc.Activity) string {
+// counts the time itself, so a new timestamp alone is not a change. The
+// playing flag is included, otherwise pausing would look identical.
+func discordActivityKey(activity discordrpc.Activity, playing bool) string {
 	activity.Timestamps = nil
 	payload, _ := json.Marshal(activity)
-	return string(payload)
+	if playing {
+		return string(payload) + "|playing"
+	}
+	return string(payload) + "|paused"
 }
 
 // discordSync refreshes the card from the player state on the timer.
@@ -155,12 +194,7 @@ func (m *Model) discordRefresh() {
 
 // discordClear removes the card, e.g. when playback stops.
 func (m *Model) discordClear() {
-	if m.discord == nil {
-		return
-	}
-	_ = m.discord.Clear()
-	m.discordKey = ""
-	m.discordSentAt = time.Now()
+	discordClearAsync()
 }
 
 // buildDiscordActivity copies the PulseSync card field by field and applies

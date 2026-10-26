@@ -7,7 +7,6 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
-	"github.com/phantom-lancer/yatui/discordrpc"
 	"github.com/phantom-lancer/yatui/media/handler"
 	"github.com/phantom-lancer/yatui/ui/components/input"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
@@ -70,14 +69,10 @@ type Model struct {
 	// the quick search over the tracks of the open list
 	trackSearch *trackSearchModel
 
-	// discord is the local Discord IPC connection, if Discord is running
-	discord      *discordrpc.Client
+	// discordTrack is the track currently shown in the Discord card
 	discordTrack *api.Track
 	// discordPausedAt is when the playback was paused, for the AFK timeout
 	discordPausedAt time.Time
-	// discordKey is the last activity sent, to skip rate-limited repeats
-	discordKey    string
-	discordSentAt time.Time
 
 	// the window with all the key bindings
 	isHelpActive bool
