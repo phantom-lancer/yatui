@@ -44,7 +44,7 @@ func TestLastfmStatus(t *testing.T) {
 		cfg  config.LastFM
 		want string
 	}{
-		{config.LastFM{}, "нет ключей"},
+		{config.LastFM{}, "войти"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s"}, "войти"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user", Enabled: true}, "user вкл"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user"}, "user выкл"},
@@ -125,12 +125,12 @@ func TestScrobbleCancelDropsPendingTrack(t *testing.T) {
 	}
 }
 
-func TestLastfmSetupNeedsCredentials(t *testing.T) {
+func TestLastfmSetupUsesBuiltInCredentials(t *testing.T) {
 	withLastfm(t, &config.LastFM{})
 
 	m := &Model{}
-	if cmd := m.lastfmSetupCmd(); cmd != nil {
-		t.Fatal("no command without an api key")
+	if cmd := m.lastfmSetupCmd(); cmd == nil {
+		t.Fatal("the built-in keys must start the auth flow")
 	}
 }
 
