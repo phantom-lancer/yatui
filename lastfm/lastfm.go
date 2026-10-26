@@ -24,6 +24,23 @@ const (
 	userAgent = "yamusic-tui"
 )
 
+// App credentials are registered once by the project, for all users. Users
+// only sign in: they never see api keys. Fill these two values once on
+// https://www.last.fm/api/account/create and commit them.
+const (
+	DefaultApiKey    = ""
+	DefaultApiSecret = ""
+)
+
+// Credentials returns the user's own keys if both are set, otherwise the
+// built-in app keys.
+func Credentials(apiKey, apiSecret string) (string, string) {
+	if apiKey != "" && apiSecret != "" {
+		return apiKey, apiSecret
+	}
+	return DefaultApiKey, DefaultApiSecret
+}
+
 // Client is bound to a single Last.fm account once the session key is known.
 type Client struct {
 	apiKey     string

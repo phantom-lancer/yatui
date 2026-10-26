@@ -32,10 +32,44 @@ type lastfmSessionMsg struct {
 	err  error
 }
 
+// lastfmPollMsg asks again whether the user granted access in the browser.
+type lastfmPollMsg struct {
+	token   string
+	attempt int
+}
+
+// lastfmPollCmd waits and checks the token once more. The whole web flow is
+// one click for the user: browser opens, they press "Allow", the app notices.
+func lastfmPollCmd(token string, attempt int) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(3 * time.Second)
+		key, secret := lastfmCredentials()
+		client := lastfm.New(key, secret, "")
+		sessionKey, user, err := client.GetSession(token)
+		if err != nil {
+			if attempt >= 60 {
+				return lastfmSessionMsg{err: err}
+			}
+			return lastfmPollMsg{token: token, attempt: attempt + 1}
+		}
+		return lastfmSessionMsg{key: sessionKey, user: user}
+	}
+}
+
+// lastfmCredentials returns the keys used for the requests: the user's own
+// ones if present, otherwise the app keys built into the binary.
+func lastfmCredentials() (string, string) {
+	cfg := config.Current.LastFM
+	if cfg == nil {
+		return lastfm.Credentials("", "")
+	}
+	return lastfm.Credentials(cfg.ApiKey, cfg.ApiSecret)
+}
+
 // lastfmConfigured reports whether the api key and secret are in place.
 func lastfmConfigured() bool {
-	cfg := config.Current.LastFM
-	return cfg != nil && cfg.ApiKey != "" && cfg.ApiSecret != ""
+	key, secret := lastfmCredentials()
+	return key != "" && secret != ""
 }
 
 // lastfmActive reports whether scrobbling can actually be sent.
@@ -49,9 +83,9 @@ func (m *Model) lastfmStatus() string {
 	cfg := config.Current.LastFM
 	switch {
 	case !lastfmConfigured():
-		return "нужен api-key"
+		return "нет ключей"
 	case cfg.SessionKey == "":
-		return "подключить"
+		return "войти"
 	case cfg.Enabled:
 		return cfg.Username + " вкл"
 	default:
@@ -68,8 +102,9 @@ func (m *Model) lastfmSetupCmd() tea.Cmd {
 		return nil
 	}
 
-	if cfg.ApiKey == "" || cfg.ApiSecret == "" {
-		m.showToast("Last.fm: впиши api-key и api-secret в config.yaml")
+	key, secret := lastfmCredentials()
+	if key == "" || secret == "" {
+		m.showToast("Last.fm: в сборке нет ключей приложения")
 		return nil
 	}
 
@@ -80,7 +115,7 @@ func (m *Model) lastfmSetupCmd() tea.Cmd {
 		return nil
 	}
 
-	client := lastfm.New(cfg.ApiKey, cfg.ApiSecret, "")
+	client := lastfm.New(key, secret, "")
 
 	if cfg.PendingToken != "" {
 		token := cfg.PendingToken
@@ -98,36 +133,40 @@ func (m *Model) lastfmSetupCmd() tea.Cmd {
 }
 
 // handleLastfmMsg processes the async auth results.
-func (m *Model) handleLastfmMsg(message tea.Msg) bool {
+func (m *Model) handleLastfmMsg(message tea.Msg) (tea.Cmd, bool) {
 	cfg := config.Current.LastFM
 	if cfg == nil {
-		return false
+		return nil, false
 	}
 
 	switch msg := message.(type) {
 	case lastfmTokenMsg:
 		if msg.err != nil {
 			m.showToast("Last.fm: " + msg.err.Error())
-			return true
+			return nil, true
 		}
 		cfg.PendingToken = msg.token
 		m.saveConfig()
-		openBrowser(lastfm.AuthUrl(cfg.ApiKey, msg.token))
-		m.showToast("Last.fm: разреши доступ в браузере, потом F9 → Last.fm")
-		return true
+		key, _ := lastfmCredentials()
+		openBrowser(lastfm.AuthUrl(key, msg.token))
+		m.showToast("Last.fm: разреши доступ в браузере — подключусь сам")
+		return lastfmPollCmd(msg.token, 0), true
+
+	case lastfmPollMsg:
+		return lastfmPollCmd(msg.token, msg.attempt), true
 
 	case lastfmSessionMsg:
 		if msg.err != nil {
 			m.showToast("Last.fm: " + msg.err.Error())
-			return true
+			return nil, true
 		}
 		applyLastfmSession(cfg, msg.key, msg.user)
 		m.saveConfig()
 		m.showToast("Last.fm подключён: " + msg.user)
-		return true
+		return nil, true
 	}
 
-	return false
+	return nil, false
 }
 
 // applyLastfmSession stores the result of the web auth flow.
@@ -168,7 +207,8 @@ func (m *Model) scrobbleStart(track *api.Track) {
 	}
 
 	cfg := config.Current.LastFM
-	client := lastfmClient(cfg.ApiKey, cfg.ApiSecret, cfg.SessionKey)
+	key, secret := lastfmCredentials()
+	client := lastfmClient(key, secret, cfg.SessionKey)
 
 	artist := helpers.ArtistList(track.Artists)
 	title := track.Title

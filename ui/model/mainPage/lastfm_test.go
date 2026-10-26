@@ -44,8 +44,8 @@ func TestLastfmStatus(t *testing.T) {
 		cfg  config.LastFM
 		want string
 	}{
-		{config.LastFM{}, "нужен api-key"},
-		{config.LastFM{ApiKey: "k", ApiSecret: "s"}, "подключить"},
+		{config.LastFM{}, "нет ключей"},
+		{config.LastFM{ApiKey: "k", ApiSecret: "s"}, "войти"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user", Enabled: true}, "user вкл"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user"}, "user выкл"},
 	}
@@ -148,13 +148,13 @@ func TestHandleLastfmError(t *testing.T) {
 	withLastfm(t, &config.LastFM{ApiKey: "k", ApiSecret: "s"})
 
 	m := &Model{}
-	if !m.handleLastfmMsg(lastfmTokenMsg{err: errors.New("boom")}) {
+	if _, ok := m.handleLastfmMsg(lastfmTokenMsg{err: errors.New("boom")}); !ok {
 		t.Fatal("token errors must be handled")
 	}
-	if !m.handleLastfmMsg(lastfmSessionMsg{err: errors.New("boom")}) {
+	if _, ok := m.handleLastfmMsg(lastfmSessionMsg{err: errors.New("boom")}); !ok {
 		t.Fatal("session errors must be handled")
 	}
-	if m.handleLastfmMsg("not a lastfm message") {
+	if _, ok := m.handleLastfmMsg("not a lastfm message"); ok {
 		t.Fatal("unrelated messages must be ignored")
 	}
 }

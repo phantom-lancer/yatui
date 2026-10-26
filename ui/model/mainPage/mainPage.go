@@ -243,8 +243,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// async Last.fm auth results
-	if m.handleLastfmMsg(message) {
-		return m, nil
+	if cmd, handled := m.handleLastfmMsg(message); handled {
+		return m, cmd
 	}
 
 	// context menu has priority over everything.
