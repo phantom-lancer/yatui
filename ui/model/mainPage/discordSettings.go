@@ -1,6 +1,8 @@
 package mainpage
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -108,6 +110,27 @@ func (m *Model) openDiscordSettings() tea.Cmd {
 			value: func() string { return onOff(cfg.MergeLinks) },
 			change: func(dir int) tea.Cmd {
 				cfg.MergeLinks = !cfg.MergeLinks
+				return m.discordApply()
+			},
+		},
+		{
+			label: "Убирать при паузе",
+			value: func() string {
+				if cfg.AfkTimeout == 0 {
+					return "сразу"
+				}
+				return fmt.Sprintf("%d мин", cfg.AfkTimeout)
+			},
+			change: func(dir int) tea.Cmd {
+				steps := []int{0, 5, 15, 30, 60}
+				idx := 0
+				for i, v := range steps {
+					if v == cfg.AfkTimeout {
+						idx = i
+					}
+				}
+				idx = (idx + dir + len(steps)) % len(steps)
+				cfg.AfkTimeout = steps[idx]
 				return m.discordApply()
 			},
 		},

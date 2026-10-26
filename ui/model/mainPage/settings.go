@@ -306,12 +306,11 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 		return nil, false
 	}
 
-	controls := config.Current.Controls
 	keypress := msg.String()
 
 	var cmd tea.Cmd
 	switch {
-	case keypress == "esc", controls.Settings.Contains(keypress):
+	case keypress == "esc":
 		m.isSettingsActive = false
 		m.settings = nil
 	case keypress == "up":

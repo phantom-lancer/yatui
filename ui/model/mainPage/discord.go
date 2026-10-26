@@ -40,6 +40,7 @@ func discordConfig() *config.Discord {
 			ShowVersion:   true,
 			ShowSmallIcon: true,
 			ShowButtons:   false,
+			AfkTimeout:    15,
 		}
 	}
 	return config.Current.Discord
@@ -74,6 +75,12 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 		stillPlaying = m.tracker.IsPlaying()
 	}
 
+	if playing && stillPlaying {
+		m.discordPausedAt = time.Time{}
+	} else if m.discordPausedAt.IsZero() {
+		m.discordPausedAt = time.Now()
+	}
+
 	if err := m.discord.SetActivity(buildDiscordActivity(track, position, playing, stillPlaying, cfg)); err != nil {
 		log.Print(log.LVL_WARNIGN, "discord rpc: %s", err)
 		_ = m.discord.Close()
@@ -95,6 +102,13 @@ func (m *Model) discordSync() {
 	if m.tracker.IsStoped() {
 		m.discordClear()
 		return
+	}
+	if !m.tracker.IsPlaying() && !m.discordPausedAt.IsZero() {
+		timeout := time.Duration(discordConfig().AfkTimeout) * time.Minute
+		if time.Since(m.discordPausedAt) >= timeout {
+			m.discordClear()
+			return
+		}
 	}
 	m.discordUpdate(m.discordTrack, m.tracker.IsPlaying())
 }
@@ -191,9 +205,11 @@ func buildDiscordActivity(track *api.Track, position time.Duration, playing, sti
 			Start: start,
 			End:   start + int64(track.DurationMs),
 		}
-	} else if cfg.ShowSmallIcon {
-		activity.Assets.SmallImage = "paused"
-		activity.Assets.SmallText = discordPlayingText(cfg.Language, false)
+	} else {
+		if cfg.ShowSmallIcon {
+			activity.Assets.SmallImage = "paused"
+			activity.Assets.SmallText = discordPlayingText(cfg.Language, false)
+		}
 	}
 
 	if cfg.ShowButtons && trackPath != "" {

@@ -71,8 +71,10 @@ type Model struct {
 	trackSearch *trackSearchModel
 
 	// discord is the local Discord IPC connection, if Discord is running
-	discord     *discordrpc.Client
+	discord      *discordrpc.Client
 	discordTrack *api.Track
+	// discordPausedAt is when the playback was paused, for the AFK timeout
+	discordPausedAt time.Time
 
 	// the window with all the key bindings
 	isHelpActive bool
@@ -356,6 +358,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// function keys detected by the keyboard watcher
 	case hotkeys.HotkeyMsg:
+		if m.isSettingsActive || m.settings != nil {
+			break
+		}
 		if config.Current.Controls.Settings.Contains(msg.String()) {
 			m.toggleSettings()
 			cmds = append(cmds, tea.ClearScreen)
@@ -393,9 +398,6 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.ShowAllKeys.Contains(keypress):
 			m.toggleHelp()
-			cmds = append(cmds, tea.ClearScreen)
-		case controls.Settings.Contains(keypress):
-			m.toggleSettings()
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.WaveSettings.Contains(keypress):
 			cmds = append(cmds, m.openWaveSettings())
@@ -627,6 +629,10 @@ func (m *Model) viewBody() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.spinner.View())
 	}
 
+	if m.discordSettings != nil {
+		return m.placeDiscordSettings()
+	}
+
 	if m.isSettingsActive && m.settings != nil {
 		return m.placeSettings()
 	}
@@ -641,10 +647,6 @@ func (m *Model) viewBody() string {
 
 	if m.eq != nil {
 		return m.placeEqualizer()
-	}
-
-	if m.discordSettings != nil {
-		return m.placeDiscordSettings()
 	}
 
 	if m.trackSearch != nil {
