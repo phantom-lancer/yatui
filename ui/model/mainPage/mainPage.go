@@ -187,7 +187,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// the equalizer window captures the keys while it is open
-	if cmd, handled := m.eqControl(message); handled {
+	if cmd := m.eqControl(message); cmd != nil {
 		return m, cmd
 	}
 
