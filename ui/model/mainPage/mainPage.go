@@ -75,6 +75,8 @@ type Model struct {
 	discordTrack *api.Track
 	// discordPausedAt is when the playback was paused, for the AFK timeout
 	discordPausedAt time.Time
+	// discordKey is the last activity sent, to skip rate-limited repeats
+	discordKey string
 
 	// the window with all the key bindings
 	isHelpActive bool

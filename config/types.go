@@ -182,6 +182,7 @@ type Discord struct {
 	ShowButtons   bool   `yaml:"show-buttons"`
 	MergeLinks    bool   `yaml:"merge-links"`
 	AfkTimeout    int    `yaml:"afk-timeout-min"`
+	ShowBranding  bool   `yaml:"show-branding"`
 }
 
 type Search struct {
@@ -244,6 +245,7 @@ var defaultConfig = Config{
 		ShowButtons:   false,
 		MergeLinks:    false,
 		AfkTimeout:    15,
+		ShowBranding:  true,
 	},
 	Wave: &Wave{},
 	Equalizer: &Equalizer{

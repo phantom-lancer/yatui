@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ const (
 type discordTickMsg struct{}
 
 func discordTickCmd() tea.Cmd {
-	return tea.Tick(10*time.Second, func(time.Time) tea.Msg { return discordTickMsg{} })
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return discordTickMsg{} })
 }
 
 // discordConfig returns the Discord settings, creating defaults on first use.
@@ -41,6 +42,7 @@ func discordConfig() *config.Discord {
 			ShowSmallIcon: true,
 			ShowButtons:   false,
 			AfkTimeout:    15,
+			ShowBranding:  true,
 		}
 	}
 	return config.Current.Discord
@@ -81,13 +83,32 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 		m.discordPausedAt = time.Now()
 	}
 
-	if err := m.discord.SetActivity(buildDiscordActivity(track, position, playing, stillPlaying, cfg)); err != nil {
+	activity := buildDiscordActivity(track, position, playing, stillPlaying, cfg)
+	key := discordActivityKey(activity)
+	if key == m.discordKey {
+		// Discord drops updates that repeat too often (rate limit), so only
+		// send when something actually changed.
+		m.discordTrack = track
+		return
+	}
+
+	if err := m.discord.SetActivity(activity); err != nil {
 		log.Print(log.LVL_WARNIGN, "discord rpc: %s", err)
 		_ = m.discord.Close()
 		m.discord = nil
+		m.discordKey = ""
 		return
 	}
+	m.discordKey = key
 	m.discordTrack = track
+}
+
+// discordActivityKey serializes everything except the timestamps: Discord
+// counts the time itself, so a new timestamp alone is not a change.
+func discordActivityKey(activity discordrpc.Activity) string {
+	activity.Timestamps = nil
+	payload, _ := json.Marshal(activity)
+	return string(payload)
 }
 
 // discordSync refreshes the card from the player state on the timer.
@@ -127,6 +148,7 @@ func (m *Model) discordClear() {
 		return
 	}
 	_ = m.discord.Clear()
+	m.discordKey = ""
 }
 
 // buildDiscordActivity copies the PulseSync card field by field and applies
@@ -174,7 +196,10 @@ func buildDiscordActivity(track *api.Track, position time.Duration, playing, sti
 		artistPath = "artist/" + strconv.FormatUint(track.Artists[0].Id, 10)
 	}
 
-	largeText := "yatui " + Version
+	largeText := ""
+	if cfg.ShowBranding {
+		largeText = "yatui " + Version
+	}
 	if cfg.ShowAlbum && album != "" {
 		largeText = album
 	}

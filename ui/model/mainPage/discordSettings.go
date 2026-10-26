@@ -114,6 +114,14 @@ func (m *Model) openDiscordSettings() tea.Cmd {
 			},
 		},
 		{
+			label: "Подпись yatui",
+			value: func() string { return onOff(cfg.ShowBranding) },
+			change: func(dir int) tea.Cmd {
+				cfg.ShowBranding = !cfg.ShowBranding
+				return m.discordApply()
+			},
+		},
+		{
 			label: "Убирать при паузе",
 			value: func() string {
 				if cfg.AfkTimeout == 0 {
