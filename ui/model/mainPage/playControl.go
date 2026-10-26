@@ -351,6 +351,7 @@ func (m *Model) playTrack(track *api.Track) {
 	}
 	m.failedTracks = 0
 	m.scrobbleStart(track)
+	m.discordUpdate(track, true)
 	m.indicateCurrentTrackPlaying(true)
 	m.mediaHandler.OnPlayback()
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/discordrpc"
 	"github.com/phantom-lancer/yatui/media/handler"
 	"github.com/phantom-lancer/yatui/ui/components/input"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
@@ -68,6 +69,10 @@ type Model struct {
 
 	// the quick search over the tracks of the open list
 	trackSearch *trackSearchModel
+
+	// discord is the local Discord IPC connection, if Discord is running
+	discord     *discordrpc.Client
+	discordTrack *api.Track
 
 	// the window with all the key bindings
 	isHelpActive bool
@@ -531,8 +536,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case tracker.PLAY, tracker.PAUSE:
 			m.mediaHandler.OnPlayPause()
 			m.showPlayStateToast()
+			m.discordRefresh()
 		case tracker.STOP:
 			m.scrobbleCancel()
+			m.discordClear()
 			m.mediaHandler.OnEnded()
 		case tracker.REWIND:
 			m.mediaHandler.OnSeek(m.tracker.Position())
