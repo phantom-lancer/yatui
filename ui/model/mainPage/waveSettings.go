@@ -56,22 +56,30 @@ type waveLayout struct {
 	valid         bool
 }
 
-// rowAt returns the index of the row under the given screen coordinates.
+// rowAt returns the index of the control row under the given screen
+// coordinates. The whole window width counts, so the buttons are easy to hit.
 func (l waveLayout) rowAt(x, y int) (int, bool) {
-	if !l.valid || x < l.x || x >= l.x+l.width || y < l.rowY {
+	if !l.valid || x < l.x || x >= l.x+l.width || y < l.y || y >= l.y+l.height {
 		return 0, false
 	}
 
-	row := y - l.rowY
-	if row < l.rows {
-		return row, true
-	}
-	// the apply row is below an empty line
-	if row == l.rows+1 {
-		return l.rows, true
+	groups := l.rows - 2
+	rel := y - l.rowY
+	switch {
+	case rel >= 0 && rel < groups:
+		return rel, true
+	case rel == groups+1: // the reset row after the blank line
+		return groups, true
+	case rel == groups+2: // the apply row
+		return groups + 1, true
 	}
 
 	return 0, false
+}
+
+// contains reports whether the point is inside the window at all.
+func (l waveLayout) contains(x, y int) bool {
+	return l.valid && x >= l.x && x < l.x+l.width && y >= l.y && y < l.y+l.height
 }
 
 // valueDir reports which part of the value the cursor is on: -1 for the left
@@ -377,7 +385,7 @@ func (m *Model) waveView() string {
 	))
 
 	return lipgloss.JoinVertical(
-		lipgloss.Left,
+		lipgloss.Center,
 		box,
 		style.DialogHelpStyle.Render("↑/↓ — выбор, ←/→ — изменить, enter — применить, r — сбросить, esc — выход"),
 	)
@@ -520,12 +528,17 @@ func (m *Model) waveMouse(msg tea.MouseMsg) tea.Cmd {
 			break
 		}
 
-		row, ok := layout.rowAt(msg.X, msg.Y)
-		if !ok {
+		if !layout.contains(msg.X, msg.Y) {
 			// a click outside of the window closes it
 			m.isWaveActive = false
 			m.wave = nil
 			return tea.ClearScreen
+		}
+
+		row, ok := layout.rowAt(msg.X, msg.Y)
+		if !ok {
+			// title, padding or the blank line: nothing to press
+			return nil
 		}
 
 		m.wave.index = row

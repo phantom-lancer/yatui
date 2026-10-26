@@ -243,6 +243,31 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 // mouseMotion moves the selection to the element under the cursor, so the
 // pointer works like the cursor keys.
 func (m *Model) mouseMotion(x, y int) tea.Cmd {
+	// highlight the player control under the pointer, so it is obvious what
+	// can be clicked
+	thover := tracker.HoverNone
+	switch {
+	case m.mouse.progress.Contains(x, y):
+		thover = tracker.HoverProgress
+	case m.mouse.volumeBar.Contains(x, y):
+		thover = tracker.HoverVolume
+	case m.mouse.play.Contains(x, y):
+		thover = tracker.HoverPlay
+	case m.mouse.prev.Contains(x, y):
+		thover = tracker.HoverPrev
+	case m.mouse.next.Contains(x, y):
+		thover = tracker.HoverNext
+	case m.mouse.eq.Contains(x, y):
+		thover = tracker.HoverEQ
+	case m.mouse.like.Contains(x, y):
+		thover = tracker.HoverLike
+	case m.mouse.dislike.Contains(x, y):
+		thover = tracker.HoverDislike
+	}
+	if m.tracker != nil {
+		m.tracker.SetHover(thover)
+	}
+
 	hover := m.mouse.settings.Contains(x, y)
 	if hover != m.settingsHover {
 		m.settingsHover = hover

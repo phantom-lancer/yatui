@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/equalizer"
@@ -314,8 +315,9 @@ func (m *Model) eqView() string {
 	)
 	faderBlock := lipgloss.NewStyle().Padding(0, 1).Render(faders)
 
-	rows := make([]string, 0, 4+equalizer.Bands)
+	rows := make([]string, 0, 5+equalizer.Bands)
 	rows = append(rows, toggleRow)
+	rows = append(rows, "")
 	rows = append(rows, presetRow)
 	rows = append(rows, faderBlock)
 	rows = append(rows, "")
@@ -341,7 +343,7 @@ func (m *Model) eqView() string {
 	))
 
 	return lipgloss.JoinVertical(
-		lipgloss.Left,
+		lipgloss.Center,
 		box,
 		style.DialogHelpStyle.Render("↑/↓ — выбор, ←/→ — уровень, мышь — крутить ползунок, изменения применяются сразу, esc — выход"),
 	)
@@ -365,28 +367,58 @@ func (m *Model) placeEqualizer() string {
 		y = 0
 	}
 
-	// Exact layout of the box (DialogBoxStyle): border top 1 row, padding top
-	// 1 row, then DialogTitleStyle (1 line + MarginBottom 1 row), then the
-	// body rows built in eqView.
-	const (
-		toggleRow  = 4 // border(1) + padding(1) + title(1) + title margin(1)
-		presetRow  = 5
-		faderRow   = 7 // top level labels row is 6, first fader row is 7
-		applyRow   = 21
-		contentPad = 3 // border left(1) + padding left(2)
-	)
-
 	labelW := labelWidthEQ()
 
+	// horizontal geometry is fixed and well tested
+	const contentPad = 3 // border left(1) + padding left(2)
 	toggleX := x + contentPad + labelW + 2
-	toggleY := y + toggleRow
-
-	presetY := y + presetRow
-
-	sliderY := y + faderRow
-
 	// the fader block has its own left padding of 1 cell
 	sliderStartX := x + contentPad + 1 + labelW + 2
+
+	// vertical geometry is measured from the rendered text, so it follows the
+	// real layout (title margins, spacer rows) automatically.
+	lines := strings.Split(view, "\n")
+	toggleY := -1
+	presetY := -1
+	applyY := -1
+	freqY := -1
+	for i, line := range lines {
+		strip := ansi.Strip(line)
+		if toggleY < 0 {
+			if idx := strings.Index(strip, "выкл"); idx >= 0 {
+				toggleX = x + idx
+				toggleY = y + i
+			} else if idx := strings.Index(strip, "вкл"); idx >= 0 {
+				toggleX = x + idx
+				toggleY = y + i
+			}
+		}
+		if presetY < 0 && strings.Contains(strip, "Пресет") {
+			presetY = y + i
+		}
+		if freqY < 0 && strings.Contains(strip, "60") {
+			freqY = y + i
+		}
+		if applyY < 0 && strings.Contains(strip, "Применить") {
+			applyY = y + i
+		}
+	}
+
+	// fallbacks for the unlikely case the text is not found
+	if toggleY < 0 {
+		toggleY = y + 4
+	}
+	if presetY < 0 {
+		presetY = y + 6
+	}
+	if applyY < 0 {
+		applyY = y + 22
+	}
+
+	sliderY := y + 8
+	if freqY >= 0 {
+		sliderY = freqY - _EQ_SLIDER_HEIGHT
+	}
 
 	sliders := make([]eqSlider, 0, equalizer.Bands)
 	for i := 0; i < equalizer.Bands; i++ {
@@ -407,7 +439,7 @@ func (m *Model) placeEqualizer() string {
 		height:     height,
 		toggleRect: Rect{X: toggleX, Y: toggleY, Width: 16, Height: 1},
 		presetRect: Rect{X: x, Y: presetY, Width: width, Height: 1},
-		applyRect:  Rect{X: x, Y: y + applyRow, Width: width, Height: 1},
+		applyRect:  Rect{X: x, Y: applyY, Width: width, Height: 1},
 		sliders:    sliders,
 		valid:      true,
 	}
@@ -555,6 +587,14 @@ func (m *Model) eqMouse(msg tea.MouseMsg) tea.Cmd {
 		} else if layout.toggleRect.Contains(msg.X, msg.Y) {
 			if m.eq.index != -1 {
 				m.eq.index = -1
+			}
+		} else if layout.presetRect.Contains(msg.X, msg.Y) {
+			if m.eq.index != 0 {
+				m.eq.index = 0
+			}
+		} else if layout.applyRect.Contains(msg.X, msg.Y) {
+			if m.eq.index != 1+equalizer.Bands {
+				m.eq.index = 1 + equalizer.Bands
 			}
 		}
 

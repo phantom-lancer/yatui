@@ -88,7 +88,32 @@ type Model struct {
 	// eqEnabled reports whether the equalizer changes the sound right now.
 	eqEnabled bool
 
+	// hover is the control under the mouse pointer; it only changes colors
+	// and is updated on mouse motion.
+	hover Hover
+
 	regions *Regions
+}
+
+// Hover names the control the mouse pointer is over.
+type Hover int
+
+const (
+	HoverNone Hover = iota
+	HoverPrev
+	HoverPlay
+	HoverNext
+	HoverProgress
+	HoverVolume
+	HoverEQ
+	HoverLike
+	HoverDislike
+)
+
+// SetHover marks the control under the pointer. It is cheap: the view is
+// re-rendered anyway, so this only flips a small field.
+func (m *Model) SetHover(h Hover) {
+	m.hover = h
 }
 
 func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool) *Model {
@@ -195,14 +220,26 @@ func (m *Model) view() (string, *Regions) {
 	// transport buttons: prev / play / next, spaced apart so that they
 	// stay readable and easy to hit
 	var playButton string
+	playStyle := style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+	if m.hover == HoverPlay {
+		playStyle = playStyle.Bold(true).Underline(true)
+	}
 	if m.IsPlaying() {
-		playButton = style.ActiveButtonStyle.Padding(0, 1).Margin(0).Render(style.IconPlay)
+		playButton = playStyle.Render(style.IconPlay)
 	} else {
-		playButton = style.ActiveButtonStyle.Padding(0, 1).Margin(0).Render(style.IconStop)
+		playButton = playStyle.Render(style.IconStop)
 	}
 
-	prevButton := style.ButtonStyle.Padding(0, 1).Margin(0).Render(style.IconPrev)
-	nextButton := style.ButtonStyle.Padding(0, 1).Margin(0).Render(style.IconNext)
+	prevStyle := style.ButtonStyle.Padding(0, 1).Margin(0)
+	if m.hover == HoverPrev {
+		prevStyle = style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+	}
+	nextStyle := style.ButtonStyle.Padding(0, 1).Margin(0)
+	if m.hover == HoverNext {
+		nextStyle = style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+	}
+	prevButton := prevStyle.Render(style.IconPrev)
+	nextButton := nextStyle.Render(style.IconNext)
 	transportGap := "  "
 
 	var volumeIndicator string
@@ -219,6 +256,12 @@ func (m *Model) view() (string, *Regions) {
 		} else {
 			volumeIcon = style.IconVolumeHigh
 		}
+		volumeFull := style.AccentColor
+		if m.hover == HoverVolume || m.hover == HoverProgress {
+			volumeFull = style.ActiveTextColor
+		}
+		m.volumeBar.FullColor = string(volumeFull)
+		m.volumeBar.EmptyColor = string(style.BackgroundColor)
 		volumeIndicator = " " + volumeIcon + " " + m.volumeBar.ViewAs(m.volume)
 		volumeIndicatorWidth = lipgloss.Width(volumeIndicator)
 		volumeBarX = 1 + lipgloss.Width(volumeIcon) + 1
@@ -227,7 +270,11 @@ func (m *Model) view() (string, *Regions) {
 	var eqButton string
 	var eqButtonWidth int
 	if style.VolumeIndicatorWidth > 0 && m.width > style.VolumeIndicatorAutohide {
-		eqButton = style.ButtonStyle.Padding(0, 1).Margin(0).Render("EQ")
+		eqStyle := style.ButtonStyle.Padding(0, 1).Margin(0)
+		if m.hover == HoverEQ {
+			eqStyle = style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+		}
+		eqButton = eqStyle.Render("EQ")
 		if m.eqEnabled {
 			eqButton = style.ActiveButtonStyle.Padding(0, 1).Margin(0).Render("EQ")
 		}
@@ -251,6 +298,12 @@ func (m *Model) view() (string, *Regions) {
 	if m.progress.Width < 0 {
 		m.progress.Width = 0
 	}
+	progressFull := style.AccentColor
+	if m.hover == HoverProgress || m.hover == HoverVolume {
+		progressFull = style.ActiveTextColor
+	}
+	m.progress.FullColor = string(progressFull)
+	m.progress.EmptyColor = string(style.BackgroundColor)
 	progressBlock := style.TrackProgressStyle.Render(m.progress.View())
 	tracker := lipgloss.JoinHorizontal(
 		lipgloss.Top,
