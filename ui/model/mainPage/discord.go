@@ -187,12 +187,17 @@ func buildDiscordActivity(track *api.Track, position time.Duration, playing, sti
 		}
 	}
 
+	// PulseSync uses the cover of the track; OgImage is only a fallback and
+	// may already contain the scheme, so it must not be prefixed twice.
 	cover := track.CoverUri
-	if track.OgImage != "" {
+	if cover == "" {
 		cover = track.OgImage
 	}
 	if cover != "" {
-		cover = "https://" + strings.Replace(cover, "%%", "400x400", 1)
+		if !strings.HasPrefix(cover, "http") {
+			cover = "https://" + cover
+		}
+		cover = strings.Replace(cover, "%%", "400x400", 1)
 	}
 
 	trackPath := ""

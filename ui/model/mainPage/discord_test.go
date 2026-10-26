@@ -89,6 +89,12 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 	if got := buildDiscordActivity(track, 0, true, true, noIcon); got.Assets.SmallImage != "" {
 		t.Error("small icon must be hidden")
 	}
+
+	// OgImage may already contain the scheme: it must not be doubled
+	og := &api.Track{Title: "T", OgImage: "https://example.com/cover.jpg"}
+	if got := buildDiscordActivity(og, 0, true, true, testDiscordConfig()); got.Assets.LargeImage != "https://example.com/cover.jpg" {
+		t.Errorf("og image = %q", got.Assets.LargeImage)
+	}
 }
 
 // TestDiscordUpdateWithoutDiscord does not panic when Discord is not running.
