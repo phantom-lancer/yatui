@@ -172,6 +172,17 @@ type LastFM struct {
 	PendingToken string `yaml:"pending-token"`
 }
 
+type Discord struct {
+	Enabled       bool   `yaml:"enabled"`
+	StatusType    int    `yaml:"status-type"` // 0 name, 1 artist, 2 track
+	Language      string `yaml:"language"`    // en, ru
+	ShowAlbum     bool   `yaml:"show-album"`
+	ShowVersion   bool   `yaml:"show-version"`
+	ShowSmallIcon bool   `yaml:"show-small-icon"`
+	ShowButtons   bool   `yaml:"show-buttons"`
+	MergeLinks    bool   `yaml:"merge-links"`
+}
+
 type Search struct {
 	Artists   bool `yaml:"artists"`
 	Popular   bool `yaml:"popular"`
@@ -194,6 +205,7 @@ type Config struct {
 	Search         *Search        `yaml:"search"`
 	Normalization  *Normalization `yaml:"normalization"`
 	LastFM         *LastFM        `yaml:"lastfm"`
+	Discord        *Discord       `yaml:"discord"`
 	Wave           *Wave          `yaml:"wave"`
 	Equalizer      *Equalizer     `yaml:"equalizer"`
 	Controls       *Controls      `yaml:"controls"`
@@ -220,6 +232,16 @@ var defaultConfig = Config{
 	},
 	LastFM: &LastFM{
 		Enabled: false,
+	},
+	Discord: &Discord{
+		Enabled:       true,
+		StatusType:    0,
+		Language:      "en",
+		ShowAlbum:     true,
+		ShowVersion:   true,
+		ShowSmallIcon: true,
+		ShowButtons:   false,
+		MergeLinks:    false,
 	},
 	Wave: &Wave{},
 	Equalizer: &Equalizer{

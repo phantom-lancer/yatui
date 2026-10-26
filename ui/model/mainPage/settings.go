@@ -481,6 +481,7 @@ func (m *Model) buildSettings() []settingItem {
 				return m.lastfmSetupCmd()
 			},
 		},
+		m.discordSettingItem(),
 		{
 			label: "Подавлять ошибки",
 			kind:  settingBool,

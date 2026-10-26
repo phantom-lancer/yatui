@@ -5,9 +5,21 @@ import (
 	"time"
 
 	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
 )
 
-// TestDiscordActivityMatchesPulseSync checks the fields we copy from PulseSync.
+func testDiscordConfig() *config.Discord {
+	return &config.Discord{
+		Enabled:       true,
+		StatusType:    0,
+		Language:      "en",
+		ShowAlbum:     true,
+		ShowVersion:   true,
+		ShowSmallIcon: true,
+	}
+}
+
+// TestDiscordActivityMatchesPulseSync checks the fields copied from PulseSync.
 func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 	track := &api.Track{
 		Id:         "123",
@@ -19,7 +31,7 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 		Artists:    []api.Artist{{Id: 7, Name: "Artist"}},
 	}
 
-	activity := buildDiscordActivity(track, 60*time.Second, true, true)
+	activity := buildDiscordActivity(track, 60*time.Second, true, true, testDiscordConfig())
 
 	if activity.Type != 2 {
 		t.Errorf("type = %d, want 2 (listening)", activity.Type)
@@ -42,24 +54,49 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 	if activity.Assets.SmallImage != "playing" {
 		t.Errorf("small image = %q", activity.Assets.SmallImage)
 	}
-	if len(activity.Buttons) != 2 || activity.Buttons[1].URL == "" {
-		t.Errorf("buttons = %+v", activity.Buttons)
+	if len(activity.Buttons) != 0 {
+		t.Errorf("buttons must be off by default, got %+v", activity.Buttons)
 	}
 	if activity.Timestamps == nil || activity.Timestamps.End-activity.Timestamps.Start != 180000 {
 		t.Errorf("timestamps = %+v", activity.Timestamps)
 	}
 
-	paused := buildDiscordActivity(track, 60*time.Second, false, false)
+	paused := buildDiscordActivity(track, 60*time.Second, false, false, testDiscordConfig())
 	if paused.Timestamps != nil {
 		t.Error("paused activity must not have timestamps")
 	}
 	if paused.Assets.SmallImage != "paused" {
 		t.Errorf("paused icon = %q", paused.Assets.SmallImage)
 	}
+
+	withButtons := testDiscordConfig()
+	withButtons.ShowButtons = true
+	buttons := buildDiscordActivity(track, 0, true, true, withButtons)
+	if len(buttons.Buttons) != 2 {
+		t.Errorf("buttons = %+v", buttons.Buttons)
+	}
+
+	merged := testDiscordConfig()
+	merged.ShowButtons = true
+	merged.MergeLinks = true
+	mergedButtons := buildDiscordActivity(track, 0, true, true, merged)
+	if len(mergedButtons.Buttons) != 1 {
+		t.Errorf("merged buttons = %+v", mergedButtons.Buttons)
+	}
+
+	noIcon := testDiscordConfig()
+	noIcon.ShowSmallIcon = false
+	if got := buildDiscordActivity(track, 0, true, true, noIcon); got.Assets.SmallImage != "" {
+		t.Error("small icon must be hidden")
+	}
 }
 
 // TestDiscordUpdateWithoutDiscord does not panic when Discord is not running.
 func TestDiscordUpdateWithoutDiscord(t *testing.T) {
+	previous := config.Current.Discord
+	t.Cleanup(func() { config.Current.Discord = previous })
+	config.Current.Discord = testDiscordConfig()
+
 	m := &Model{}
 	m.discordUpdate(&api.Track{Title: "Song", DurationMs: 1000}, true)
 }

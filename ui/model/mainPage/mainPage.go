@@ -88,6 +88,8 @@ type Model struct {
 
 	// the window with the equalizer
 	eq *eqModel
+	// the Discord RPC panel
+	discordSettings *discordSettingsModel
 
 	// the window with the list of the stations
 	isStationsActive bool
@@ -164,7 +166,7 @@ func (m *Model) Send(msg tea.Msg) {
 func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick)
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -202,6 +204,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// the quick track search captures the keys while it is open
 	if cmd, handled := m.trackSearchControl(message); handled {
+		return m, cmd
+	}
+
+	// the Discord panel captures the keys while it is open
+	if cmd, handled := m.discordSettingsControl(message); handled {
 		return m, cmd
 	}
 
@@ -312,6 +319,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case LoadingMsg:
 		m.isLoading = false
 		return m, model.Cmd(playlist.CURSOR_UP)
+
+	case discordTickMsg:
+		m.discordSync()
+		return m, discordTickCmd()
 
 	case cacheListMsg:
 		m.applyCacheList(msg)
@@ -630,6 +641,10 @@ func (m *Model) viewBody() string {
 
 	if m.eq != nil {
 		return m.placeEqualizer()
+	}
+
+	if m.discordSettings != nil {
+		return m.placeDiscordSettings()
 	}
 
 	if m.trackSearch != nil {
