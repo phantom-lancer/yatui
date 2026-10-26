@@ -380,4 +380,3 @@ func truncateCells(s string, width int) string {
 	}
 	return string(runes) + "…"
 }
-
