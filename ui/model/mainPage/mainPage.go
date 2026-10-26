@@ -556,10 +556,14 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case tracker.LIKE:
 			cmd = m.likePlayingTrack()
 			cmds = append(cmds, cmd)
-		case tracker.PLAY, tracker.PAUSE:
+		case tracker.PLAY:
 			m.mediaHandler.OnPlayPause()
 			m.showPlayStateToast()
-			m.discordRefresh()
+			m.discordRefresh(true)
+		case tracker.PAUSE:
+			m.mediaHandler.OnPlayPause()
+			m.showPlayStateToast()
+			m.discordRefresh(false)
 		case tracker.STOP:
 			m.scrobbleCancel()
 			m.discordClear()

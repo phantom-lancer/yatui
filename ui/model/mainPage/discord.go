@@ -129,22 +129,18 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 	}
 
 	position := time.Duration(0)
-	stillPlaying := true
-	if m.tracker != nil {
-		if !m.tracker.IsStoped() {
-			position = m.tracker.Position()
-		}
-		stillPlaying = m.tracker.IsPlaying()
+	if m.tracker != nil && !m.tracker.IsStoped() {
+		position = m.tracker.Position()
 	}
 
-	if playing && stillPlaying {
+	if playing {
 		m.discordPausedAt = time.Time{}
 	} else if m.discordPausedAt.IsZero() {
 		m.discordPausedAt = time.Now()
 	}
 
-	activity := buildDiscordActivity(track, position, playing, stillPlaying, cfg)
-	key := discordActivityKey(activity, playing && stillPlaying)
+	activity := buildDiscordActivity(track, position, playing, cfg)
+	key := discordActivityKey(activity, playing)
 	m.discordTrack = track
 	discordSendAsync(activity, key)
 }
@@ -184,12 +180,14 @@ func (m *Model) discordSync() {
 	m.discordUpdate(m.discordTrack, m.tracker.IsPlaying())
 }
 
-// discordRefresh re-sends the current track after play/pause.
-func (m *Model) discordRefresh() {
+// discordRefresh re-sends the current track after play/pause. The state comes
+// from the key press, not from the player: at the moment the command arrives
+// the player has not switched yet, so IsPlaying would report the old state.
+func (m *Model) discordRefresh(playing bool) {
 	if m.discordTrack == nil {
 		return
 	}
-	m.discordUpdate(m.discordTrack, m.tracker != nil && m.tracker.IsPlaying())
+	m.discordUpdate(m.discordTrack, playing)
 }
 
 // discordClear removes the card, e.g. when playback stops.
@@ -199,7 +197,7 @@ func (m *Model) discordClear() {
 
 // buildDiscordActivity copies the PulseSync card field by field and applies
 // the user settings.
-func buildDiscordActivity(track *api.Track, position time.Duration, playing, stillPlaying bool, cfg *config.Discord) discordrpc.Activity {
+func buildDiscordActivity(track *api.Track, position time.Duration, playing bool, cfg *config.Discord) discordrpc.Activity {
 	title := track.Title
 	if cfg.ShowVersion && track.Version != "" {
 		title += " (" + track.Version + ")"
@@ -275,7 +273,7 @@ func buildDiscordActivity(track *api.Track, position time.Duration, playing, sti
 		activity.Assets.SmallText = discordPlayingText(cfg.Language, true)
 	}
 
-	if playing && stillPlaying {
+	if playing {
 		start := time.Now().Add(-position).UnixMilli()
 		activity.Timestamps = &discordrpc.Timestamps{
 			Start: start,

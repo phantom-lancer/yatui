@@ -31,7 +31,7 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 		Artists:    []api.Artist{{Id: 7, Name: "Artist"}},
 	}
 
-	activity := buildDiscordActivity(track, 60*time.Second, true, true, testDiscordConfig())
+	activity := buildDiscordActivity(track, 60*time.Second, true, testDiscordConfig())
 
 	if activity.Type != 2 {
 		t.Errorf("type = %d, want 2 (listening)", activity.Type)
@@ -61,7 +61,7 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 		t.Errorf("timestamps = %+v", activity.Timestamps)
 	}
 
-	paused := buildDiscordActivity(track, 60*time.Second, false, false, testDiscordConfig())
+	paused := buildDiscordActivity(track, 60*time.Second, false, testDiscordConfig())
 	if paused.Timestamps != nil {
 		t.Error("paused activity must not have timestamps")
 	}
@@ -71,7 +71,7 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 
 	withButtons := testDiscordConfig()
 	withButtons.ShowButtons = true
-	buttons := buildDiscordActivity(track, 0, true, true, withButtons)
+	buttons := buildDiscordActivity(track, 0, true, withButtons)
 	if len(buttons.Buttons) != 2 {
 		t.Errorf("buttons = %+v", buttons.Buttons)
 	}
@@ -79,20 +79,20 @@ func TestDiscordActivityMatchesPulseSync(t *testing.T) {
 	merged := testDiscordConfig()
 	merged.ShowButtons = true
 	merged.MergeLinks = true
-	mergedButtons := buildDiscordActivity(track, 0, true, true, merged)
+	mergedButtons := buildDiscordActivity(track, 0, true, merged)
 	if len(mergedButtons.Buttons) != 1 {
 		t.Errorf("merged buttons = %+v", mergedButtons.Buttons)
 	}
 
 	noIcon := testDiscordConfig()
 	noIcon.ShowSmallIcon = false
-	if got := buildDiscordActivity(track, 0, true, true, noIcon); got.Assets.SmallImage != "" {
+	if got := buildDiscordActivity(track, 0, true, noIcon); got.Assets.SmallImage != "" {
 		t.Error("small icon must be hidden")
 	}
 
 	// OgImage may already contain the scheme: it must not be doubled
 	og := &api.Track{Title: "T", OgImage: "https://example.com/cover.jpg"}
-	if got := buildDiscordActivity(og, 0, true, true, testDiscordConfig()); got.Assets.LargeImage != "https://example.com/cover.jpg" {
+	if got := buildDiscordActivity(og, 0, true, testDiscordConfig()); got.Assets.LargeImage != "https://example.com/cover.jpg" {
 		t.Errorf("og image = %q", got.Assets.LargeImage)
 	}
 }

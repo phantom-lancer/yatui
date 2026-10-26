@@ -160,7 +160,7 @@ func (m *Model) openDiscordSettings() tea.Cmd {
 func (m *Model) discordApply() tea.Cmd {
 	m.saveConfig()
 	m.discordClear()
-	m.discordRefresh()
+	m.discordRefresh(m.tracker == nil || m.tracker.IsPlaying())
 	return nil
 }
 
