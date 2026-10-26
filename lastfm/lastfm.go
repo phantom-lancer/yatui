@@ -28,8 +28,8 @@ const (
 // only sign in: they never see api keys. Fill these two values once on
 // https://www.last.fm/api/account/create and commit them.
 const (
-	DefaultApiKey    = ""
-	DefaultApiSecret = ""
+	DefaultApiKey    = "703ed501ce5ecc7290cfca22ceda30cd"
+	DefaultApiSecret = "78ba2c9bea4d0be783393acf1a1a75e0"
 )
 
 // Credentials returns the user's own keys if both are set, otherwise the
