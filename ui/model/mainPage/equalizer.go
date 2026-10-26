@@ -54,8 +54,9 @@ type eqLayout struct {
 // or -1 when there is none.
 func (l eqLayout) sliderAt(x, y int) int {
 	for i, s := range l.sliders {
-		// generous hitbox: ±5 cells around the column centre
-		if x >= s.x-5 && x < s.x+5 && y >= s.y && y < s.y+s.h {
+		// hitbox covers the whole column plus a small margin: columns are 8
+		// cells apart, so ±4 leaves no gap and no overlap.
+		if x >= s.x-4 && x < s.x+4 && y >= s.y && y < s.y+s.h {
 			return i
 		}
 	}
@@ -364,63 +365,39 @@ func (m *Model) placeEqualizer() string {
 		y = 0
 	}
 
-	lines := strings.Split(view, "\n")
+	// Exact layout of the box (DialogBoxStyle): border top 1 row, padding top
+	// 1 row, then DialogTitleStyle (1 line + MarginBottom 1 row), then the
+	// body rows built in eqView.
+	const (
+		toggleRow  = 4 // border(1) + padding(1) + title(1) + title margin(1)
+		presetRow  = 5
+		faderRow   = 7 // top level labels row is 6, first fader row is 7
+		applyRow   = 21
+		contentPad = 3 // border left(1) + padding left(2)
+	)
 
-	toggleX, toggleY := 0, -1
-	presetY := -1
-	applyY := -1
-	sliderY := 0
-	sliderX := 0
+	labelW := labelWidthEQ()
 
-	for i, line := range lines {
-		strip := lipStyleStrip(line)
-		if toggleY < 0 {
-			if idx := strings.Index(strip, "выкл"); idx >= 0 {
-				toggleX = x + idx
-				toggleY = y + i
-			} else if idx := strings.Index(strip, "вкл"); idx >= 0 {
-				toggleX = x + idx
-				toggleY = y + i
-			}
-		}
-		if presetY < 0 && strings.Contains(strip, "Пресет") {
-			presetY = y + i
-		}
-		if sliderY == 0 && strings.Contains(strip, "60") {
-			sliderY = y + i - 1
-			sliderX = x + strings.Index(strip, "60")
-		}
-		if applyY < 0 && strings.Contains(strip, "Применить") {
-			applyY = y + i
-		}
-	}
+	toggleX := x + contentPad + labelW + 2
+	toggleY := y + toggleRow
 
-	if toggleY < 0 {
-		toggleX = x + 12
-		toggleY = y + 3
-	}
-	if presetY < 0 {
-		presetY = y + 4
-	}
-	if applyY < 0 {
-		applyY = y + height - 3
-	}
-	if sliderY == 0 {
-		sliderY = y + 7
-		sliderX = x + 14
-	}
+	presetY := y + presetRow
 
-	firstX := sliderX - _EQ_COL_WIDTH/2 + 10
+	sliderY := y + faderRow
+
+	// the fader block has its own left padding of 1 cell
+	sliderStartX := x + contentPad + 1 + labelW + 2
+
 	sliders := make([]eqSlider, 0, equalizer.Bands)
 	for i := 0; i < equalizer.Bands; i++ {
+		centre := sliderStartX + i*(_EQ_COL_WIDTH+_EQ_COL_GAP) + _EQ_COL_WIDTH/2
 		sliders = append(sliders, eqSlider{
 			band: i,
-			x:    firstX + _EQ_COL_WIDTH/2,
+			x:    centre,
 			y:    sliderY,
 			w:    _EQ_COL_WIDTH,
 			h:    _EQ_SLIDER_HEIGHT,
 		})
-		firstX += _EQ_COL_WIDTH + _EQ_COL_GAP
 	}
 
 	m.eq.layout = eqLayout{
@@ -428,35 +405,14 @@ func (m *Model) placeEqualizer() string {
 		y:          y,
 		width:      width,
 		height:     height,
-		toggleRect: Rect{X: toggleX, Y: toggleY, Width: 14, Height: 1},
+		toggleRect: Rect{X: toggleX, Y: toggleY, Width: 16, Height: 1},
 		presetRect: Rect{X: x, Y: presetY, Width: width, Height: 1},
-		applyRect:  Rect{X: x, Y: applyY, Width: width, Height: 1},
+		applyRect:  Rect{X: x, Y: y + applyRow, Width: width, Height: 1},
 		sliders:    sliders,
 		valid:      true,
 	}
 
 	return placed
-}
-
-// lipStyleStrip removes ANSI escape codes so real cell positions can be
-// measured from a rendered line.
-func lipStyleStrip(s string) string {
-	var b strings.Builder
-	inEscape := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
 }
 
 // eqControl handles the keys and the mouse while the window is open. The
