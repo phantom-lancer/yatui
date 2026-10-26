@@ -93,3 +93,22 @@ jobs:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.ref }}
         overwrite: true
+
+  checksums:
+    name: SHA256SUMS
+    needs: [build, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release download "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" --dir dist
+    - name: Compute checksums
+      run: |
+        cd dist
+        sha256sum yatui yatui-nomedia yatui-windows-amd64.exe \
+          yatui-windows-amd64-nomedia.exe yatui-vendor.tar.gz > SHA256SUMS
+    - name: Upload checksums
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/x509"
+	"fmt"
 	"os"
 
 	"github.com/phantom-lancer/yatui/api"
@@ -15,6 +16,14 @@ import (
 )
 
 func main() {
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "--version", "-v", "version":
+			fmt.Println("yatui " + mainpage.Version)
+			return
+		}
+	}
+
 	log.Start()
 	defer log.Stop()
 
