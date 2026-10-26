@@ -1,114 +1,78 @@
 name: release
 
+on:
+  push:
+    tags: ['v*']
+
 permissions:
   contents: write
 
-on:
-  release:
-    types: [published]
-
 jobs:
-  build:
-    name: Release binaries
+  release:
+    name: Create release
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Install build dependencies
-      run: sudo apt install -y libx11-dev libasound2-dev
-    - name: Setup Go
-      uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
 
-    - name: Download dependencies
-      run: go mod vendor
-    - name: Pack vendor dir
-      run: tar -czf yatui-vendor.tar.gz ./vendor
-    - name: Upload vendor archive
-      uses: svenstaro/upload-release-action@v2
-      with:
-        file: yatui-vendor.tar.gz
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref }}
-        overwrite: true
-
-    - name: Build linux-amd64
-      run: go build -trimpath -ldflags="-w -s" -o yatui
-      env:
-        GOOS: linux
-        GOARCH: amd64
-    - name: Upload linux-amd64
-      uses: svenstaro/upload-release-action@v2
-      with:
-        file: yatui
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref }}
-        overwrite: true
-
-    - name: Build linux-amd64-nomedia
-      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-nomedia
-      env:
-        GOOS: linux
-        GOARCH: amd64
-    - name: Upload linux-amd64-nomedia
-      uses: svenstaro/upload-release-action@v2
-      with:
-        file: yatui-nomedia
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref }}
-        overwrite: true
+  build:
+    name: Linux binaries
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libasound2-dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Download dependencies
+        run: go mod vendor
+      - name: Pack vendor dir
+        run: tar -czf yatui-vendor.tar.gz ./vendor
+      - name: Build
+        run: |
+          go build -trimpath -ldflags="-w -s" -o yatui
+          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-nomedia
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" yatui yatui-nomedia yatui-vendor.tar.gz --clobber
 
   build-windows:
-    name: Release windows binaries
+    name: Windows binaries
+    needs: release
     runs-on: windows-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Setup Go
-      uses: actions/setup-go@v5
-
-    - name: Build windows-amd64
-      run: go build -trimpath -ldflags="-w -s" -o yatui-windows-amd64.exe
-      env:
-        GOOS: windows
-        GOARCH: amd64
-    - name: Upload windows-amd64
-      uses: svenstaro/upload-release-action@v2
-      with:
-        file: yatui-windows-amd64.exe
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref }}
-        overwrite: true
-
-    - name: Build windows-amd64-nomedia
-      run: go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-windows-amd64-nomedia.exe
-      env:
-        GOOS: windows
-        GOARCH: amd64
-    - name: Upload windows-amd64-nomedia
-      uses: svenstaro/upload-release-action@v2
-      with:
-        file: yatui-windows-amd64-nomedia.exe
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref }}
-        overwrite: true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          go build -trimpath -ldflags="-w -s" -o yatui-windows-amd64.exe
+          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-windows-amd64-nomedia.exe
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:GITHUB_REF_NAME" yatui-windows-amd64.exe yatui-windows-amd64-nomedia.exe --clobber
 
   checksums:
     name: SHA256SUMS
     needs: [build, build-windows]
     runs-on: ubuntu-latest
     steps:
-    - name: Download release assets
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release download "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" --dir dist
-    - name: Compute checksums
-      run: |
-        cd dist
-        sha256sum yatui yatui-nomedia yatui-windows-amd64.exe \
-          yatui-windows-amd64-nomedia.exe yatui-vendor.tar.gz > SHA256SUMS
-    - name: Upload checksums
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Download assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" --dir dist
+      - name: Compute
+        run: |
+          cd dist
+          sha256sum *.exe yatui yatui-nomedia yatui-vendor.tar.gz > SHA256SUMS
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --clobber
