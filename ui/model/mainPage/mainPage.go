@@ -69,6 +69,10 @@ type Model struct {
 	// the quick search over the tracks of the open list
 	trackSearch *trackSearchModel
 
+	// swallowRelease drops the mouse release that follows the press which
+	// closed a dialog, so it cannot click the list behind it
+	swallowRelease bool
+
 	// discordTrack is the track currently shown in the Discord card
 	discordTrack *api.Track
 	// discordPausedAt is when the playback was paused, for the AFK timeout
@@ -234,6 +238,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// clicks must not reach the components behind an open dialog
 	if mouseMsg, isMouse := message.(tea.MouseMsg); isMouse {
+		// the press that closed a dialog must not let its release play a
+		// track behind the dialog
+		if mouseMsg.Action == tea.MouseActionRelease && m.swallowRelease {
+			m.swallowRelease = false
+			return m, nil
+		}
 		if m.isSettingsActive {
 			return m, m.settingsMouse(mouseMsg)
 		}
@@ -295,6 +305,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 			switch msg.Button {
 			case tea.MouseButtonLeft, tea.MouseButtonMiddle:
+				m.swallowRelease = true
 				if !m.contextMenu.contains(msg.X, msg.Y) {
 					m.contextMenu = nil
 					return m, nil
@@ -308,6 +319,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 
 			case tea.MouseButtonRight:
+				m.swallowRelease = true
 				m.contextMenu = nil
 				return m, nil
 			}

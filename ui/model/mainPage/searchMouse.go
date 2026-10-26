@@ -45,6 +45,7 @@ func (m *Model) searchMouse(msg tea.MouseMsg) tea.Cmd {
 		if !m.searchDialog.Pick(index) {
 			break
 		}
+		m.swallowRelease = true
 		return model.Cmd(search.SELECT)
 	}
 
