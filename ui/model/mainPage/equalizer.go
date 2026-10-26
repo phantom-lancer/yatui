@@ -41,8 +41,10 @@ type eqLayout struct {
 	width, height int
 	// toggleRect is the area of the on/off switch text.
 	toggleRect Rect
-	// presetRow is the screen row of the preset selector.
-	presetRow int
+	// presetRect is the area of the preset selector row.
+	presetRect Rect
+	// applyRect is the area of the apply button.
+	applyRect Rect
 	// sliders are the faders, left to right.
 	sliders []eqSlider
 	valid   bool
@@ -52,7 +54,8 @@ type eqLayout struct {
 // or -1 when there is none.
 func (l eqLayout) sliderAt(x, y int) int {
 	for i, s := range l.sliders {
-		if x >= s.x-s.w/2 && x < s.x+s.w/2 && y >= s.y && y < s.y+s.h {
+		// generous hitbox: ±5 cells around the column centre
+		if x >= s.x-5 && x < s.x+5 && y >= s.y && y < s.y+s.h {
 			return i
 		}
 	}
@@ -316,6 +319,18 @@ func (m *Model) eqView() string {
 	rows = append(rows, faderBlock)
 	rows = append(rows, "")
 
+	// the apply button
+	applyStyle := lipgloss.NewStyle().
+		Padding(0, 2).
+		Foreground(style.NormalTextColor).
+		Background(style.InactiveTextColor).
+		Width(16).
+		Align(lipgloss.Center)
+	if m.eq.index == 1+equalizer.Bands {
+		applyStyle = applyStyle.Foreground(style.InactiveTextColor).Background(style.AccentColor)
+	}
+	rows = append(rows, lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(applyStyle.Render("Применить")))
+
 	body := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	box := style.DialogBoxStyle.Render(lipgloss.JoinVertical(
@@ -349,45 +364,63 @@ func (m *Model) placeEqualizer() string {
 		y = 0
 	}
 
-	box := style.DialogBoxStyle
+	lines := strings.Split(view, "\n")
 
-	// The dialog box layout inside the rendered view:
-	// row 0: empty (border top + padding top)
-	// row 1: title "Эквалайзер" (with margin bottom)
-	// row 2: toggle row "Эквалайзер  [вкл]"
-	// row 3: preset row "Пресет  Своя настройка"
-	// row 4: empty
-	// row 5: top level labels "+12 ..."
-	// rows 6..16: faders (11 rows)
-	// row 17: frequency labels
-	// row 18: level labels
-	// row 19: empty
-	const titleRow = 2
-	const toggleRow = 3
-	const presetRow = 4
-	const sliderStartRow = 6
+	toggleX, toggleY := 0, -1
+	presetY := -1
+	applyY := -1
+	sliderY := 0
+	sliderX := 0
 
-	labelW := labelWidthEQ()
+	for i, line := range lines {
+		strip := lipStyleStrip(line)
+		if toggleY < 0 {
+			if idx := strings.Index(strip, "выкл"); idx >= 0 {
+				toggleX = x + idx
+				toggleY = y + i
+			} else if idx := strings.Index(strip, "вкл"); idx >= 0 {
+				toggleX = x + idx
+				toggleY = y + i
+			}
+		}
+		if presetY < 0 && strings.Contains(strip, "Пресет") {
+			presetY = y + i
+		}
+		if sliderY == 0 && strings.Contains(strip, "60") {
+			sliderY = y + i - 1
+			sliderX = x + strings.Index(strip, "60")
+		}
+		if applyY < 0 && strings.Contains(strip, "Применить") {
+			applyY = y + i
+		}
+	}
 
-	toggleX := x + box.GetBorderLeftSize() + box.GetPaddingLeft() + labelW + 2
-	toggleY := y + titleRow + 1 // title row + 1 blank margin line
+	if toggleY < 0 {
+		toggleX = x + 12
+		toggleY = y + 3
+	}
+	if presetY < 0 {
+		presetY = y + 4
+	}
+	if applyY < 0 {
+		applyY = y + height - 3
+	}
+	if sliderY == 0 {
+		sliderY = y + 7
+		sliderX = x + 14
+	}
 
-	presetY := y + titleRow + 2
-
-	sliderY := y + titleRow + sliderStartRow
-
-	sliderX := x + box.GetBorderLeftSize() + box.GetPaddingLeft() + labelW + 2
-
+	firstX := sliderX - _EQ_COL_WIDTH/2 + 10
 	sliders := make([]eqSlider, 0, equalizer.Bands)
 	for i := 0; i < equalizer.Bands; i++ {
 		sliders = append(sliders, eqSlider{
 			band: i,
-			x:    sliderX + _EQ_COL_WIDTH/2,
+			x:    firstX + _EQ_COL_WIDTH/2,
 			y:    sliderY,
 			w:    _EQ_COL_WIDTH,
 			h:    _EQ_SLIDER_HEIGHT,
 		})
-		sliderX += _EQ_COL_WIDTH + _EQ_COL_GAP
+		firstX += _EQ_COL_WIDTH + _EQ_COL_GAP
 	}
 
 	m.eq.layout = eqLayout{
@@ -395,19 +428,42 @@ func (m *Model) placeEqualizer() string {
 		y:          y,
 		width:      width,
 		height:     height,
-		toggleRect: Rect{X: toggleX, Y: toggleY, Width: 6, Height: 1},
+		toggleRect: Rect{X: toggleX, Y: toggleY, Width: 14, Height: 1},
+		presetRect: Rect{X: x, Y: presetY, Width: width, Height: 1},
+		applyRect:  Rect{X: x, Y: applyY, Width: width, Height: 1},
 		sliders:    sliders,
-		presetRow:  presetY,
 		valid:      true,
 	}
 
 	return placed
 }
 
-// eqControl handles the keys and the mouse while the window is open.
-func (m *Model) eqControl(message tea.Msg) tea.Cmd {
+// lipStyleStrip removes ANSI escape codes so real cell positions can be
+// measured from a rendered line.
+func lipStyleStrip(s string) string {
+	var b strings.Builder
+	inEscape := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// eqControl handles the keys and the mouse while the window is open. The
+// second return value says whether the window swallowed the event.
+func (m *Model) eqControl(message tea.Msg) (tea.Cmd, bool) {
 	if m.eq == nil {
-		return nil
+		return nil, false
 	}
 
 	switch msg := message.(type) {
@@ -417,38 +473,42 @@ func (m *Model) eqControl(message tea.Msg) tea.Cmd {
 		switch keypress {
 		case "esc":
 			m.eq = nil
-			return tea.ClearScreen
+			return tea.ClearScreen, true
 		case "up":
 			m.eq.index--
 			if m.eq.index < -1 {
 				m.eq.index = 1 + equalizer.Bands
 			}
-			return nil
+			return nil, true
 		case "down":
 			m.eq.index++
 			if m.eq.index > 1+equalizer.Bands {
 				m.eq.index = -1
 			}
-			return nil
+			return nil, true
 		case "left", "right":
-			return m.eqChange(keypress == "right")
+			return m.eqChange(keypress == "right"), true
 		case "enter", " ":
 			if m.eq.index == -1 {
 				m.eq.enabled = !m.eq.enabled
 				m.applyEQ()
-				return nil
+				return nil, true
 			}
-			return nil
+			if m.eq.index == 1+equalizer.Bands {
+				m.applyEQ()
+				return nil, true
+			}
+			return nil, true
 		}
 
 		// the window swallows every other key
-		return nil
+		return nil, true
 
 	case tea.MouseMsg:
-		return m.eqMouse(msg)
+		return m.eqMouse(msg), true
 	}
 
-	return nil
+	return nil, false
 }
 
 // eqChange changes the value of the selected control: dir is 1 for "right",
@@ -509,24 +569,27 @@ func (m *Model) eqMouse(msg tea.MouseMsg) tea.Cmd {
 
 	switch msg.Action {
 	case tea.MouseActionMotion:
-		if msg.Button != tea.MouseButtonNone {
-			// dragging a fader
-			if m.eq.dragging >= 0 && m.eq.dragging < equalizer.Bands {
-				s := layout.sliders[m.eq.dragging]
-				row := msg.Y - s.y
-				if row < 0 {
-					row = 0
-				}
-				if row > _EQ_SLIDER_HEIGHT-1 {
-					row = _EQ_SLIDER_HEIGHT - 1
-				}
-				m.eq.enabled = true
-				m.eq.preset = "Своя настройка"
-				m.eq.gains[m.eq.dragging] = sliderGain(row)
-				m.applyEQ()
-				return nil
+		// dragging a fader: once the press started on a fader, keep dragging.
+		// Some terminals report Button == None for motion, so we don't check it.
+		if m.eq.dragging >= 0 && m.eq.dragging < equalizer.Bands {
+			band := m.eq.dragging
+			if idx := layout.sliderAt(msg.X, msg.Y); idx >= 0 {
+				band = idx
+				m.eq.dragging = band
 			}
-			break
+			s := layout.sliders[band]
+			row := msg.Y - s.y
+			if row < 0 {
+				row = 0
+			}
+			if row > _EQ_SLIDER_HEIGHT-1 {
+				row = _EQ_SLIDER_HEIGHT - 1
+			}
+			m.eq.enabled = true
+			m.eq.preset = "Своя настройка"
+			m.eq.gains[band] = sliderGain(row)
+			m.applyEQ()
+			return nil
 		}
 		// hover: highlight the control under the cursor
 		if idx := layout.sliderAt(msg.X, msg.Y); idx >= 0 {
@@ -572,9 +635,16 @@ func (m *Model) eqMouse(msg tea.MouseMsg) tea.Cmd {
 		}
 
 		// the preset row
-		if msg.Y == layout.presetRow {
+		if layout.presetRect.Contains(msg.X, msg.Y) {
 			m.eq.index = 0
 			m.eqChange(msg.X > layout.x+layout.width/2)
+			return nil
+		}
+
+		// the apply button
+		if layout.applyRect.Contains(msg.X, msg.Y) {
+			m.eq.index = 1 + equalizer.Bands
+			m.applyEQ()
 			return nil
 		}
 
