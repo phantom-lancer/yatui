@@ -64,6 +64,10 @@ type Model struct {
 	settings         *settingsModel
 	isSettingsActive bool
 	settingsHover    bool
+	searchHover      bool
+
+	// the quick search over the tracks of the open list
+	trackSearch *trackSearchModel
 
 	// the window with all the key bindings
 	isHelpActive bool
@@ -188,6 +192,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// the equalizer window captures the keys while it is open
 	if cmd, handled := m.eqControl(message); handled {
+		return m, cmd
+	}
+
+	// the quick track search captures the keys while it is open
+	if cmd, handled := m.trackSearchControl(message); handled {
 		return m, cmd
 	}
 
@@ -388,6 +397,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 			cmds = append(cmds, m.spinner.Tick)
 			go m.initialLoad()
+		case keypress == "/":
+			cmds = append(cmds, m.openTrackSearch())
 		default:
 			if m.isLoading {
 				m.spinner, cmd = m.spinner.Update(message)
@@ -612,6 +623,10 @@ func (m *Model) viewBody() string {
 
 	if m.eq != nil {
 		return m.placeEqualizer()
+	}
+
+	if m.trackSearch != nil {
+		return m.placeTrackSearch()
 	}
 
 	if m.isStationsActive && m.stations != nil {

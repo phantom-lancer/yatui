@@ -13,11 +13,21 @@ import (
 const _SETTINGS_BUTTON_MARGIN = 1
 
 // settingsButtonView renders the clickable block that sits in the bottom left
-// corner of the sidebar. The playlists component draws it and reports its
-// area back, so a click can be mapped to it.
+// corner of the sidebar: the quick track search and the settings. The
+// playlists component draws it and reports its area back, so clicks can be
+// mapped to the halves.
 func (m *Model) settingsButtonView() string {
-	label := style.SettingsButtonTextStyle.Render("Настройки")
-	hint := style.SettingsButtonHintStyle.Render("F9")
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.footerButton("Поиск", "/", m.searchHover),
+		m.footerButton("Настройки", "F9", m.settingsHover),
+	)
+}
+
+// footerButton renders one line of the sidebar footer.
+func (m *Model) footerButton(label, hint string, hover bool) string {
+	text := style.SettingsButtonTextStyle.Render(label)
+	key := style.SettingsButtonHintStyle.Render(hint)
 
 	// the block spans the whole sidebar, with a small margin on both sides:
 	// it looks like a part of the panel and not a block in the corner
@@ -26,14 +36,14 @@ func (m *Model) settingsButtonView() string {
 		width = style.SidePanelWidth
 	}
 	inner := width - 2*_SETTINGS_BUTTON_MARGIN - style.SettingsButtonStyle.GetHorizontalFrameSize()
-	if inner < lipgloss.Width(label)+lipgloss.Width(hint)+1 {
-		inner = lipgloss.Width(label) + lipgloss.Width(hint) + 1
+	if inner < lipgloss.Width(text)+lipgloss.Width(key)+1 {
+		inner = lipgloss.Width(text) + lipgloss.Width(key) + 1
 	}
 
-	filler := inner - lipgloss.Width(label) - lipgloss.Width(hint)
-	content := label + strings.Repeat(" ", filler) + hint
+	filler := inner - lipgloss.Width(text) - lipgloss.Width(key)
+	content := text + strings.Repeat(" ", filler) + key
 
-	if m.settingsHover {
+	if hover {
 		return style.SettingsButtonActiveStyle.Render(content)
 	}
 	return style.SettingsButtonStyle.Render(content)

@@ -108,6 +108,7 @@ type mouseLayout struct {
 	playlist  Rect
 	tracklist Rect
 	settings  Rect
+	search    Rect
 	prev      Rect
 	play      Rect
 	next      Rect
@@ -128,8 +129,11 @@ func (m *Model) updateMouseLayout(playlistView, tracklistView, trackerView, midP
 		m.tracker.Regions(),
 	)
 
-	// the settings button is a part of the sidebar
-	m.mouse.settings = placeSidebarFooter(m.mouse.playlist, toScreenRect(m.playlists.FooterRect()))
+	// the search and settings buttons are the two halves of the sidebar footer
+	footer := placeSidebarFooter(m.mouse.playlist, toScreenRect(m.playlists.FooterRect()))
+	half := footer.Height / 2
+	m.mouse.search = Rect{X: footer.X, Y: footer.Y, Width: footer.Width, Height: half}
+	m.mouse.settings = Rect{X: footer.X, Y: footer.Y + half, Width: footer.Width, Height: footer.Height - half}
 }
 
 // toScreenRect converts an area of the sidebar view to the screen coordinates.
@@ -268,12 +272,16 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 		m.tracker.SetHover(thover)
 	}
 
+	searchHover := m.mouse.search.Contains(x, y)
+	if searchHover != m.searchHover {
+		m.searchHover = searchHover
+	}
 	hover := m.mouse.settings.Contains(x, y)
 	if hover != m.settingsHover {
 		m.settingsHover = hover
 	}
 
-	if hover {
+	if searchHover || hover {
 		return nil
 	}
 
@@ -315,6 +323,11 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 //
 
 func (m *Model) mousePress(x, y int) tea.Cmd {
+	// search button
+	if m.mouse.search.Contains(x, y) {
+		return m.openTrackSearch()
+	}
+
 	// settings button
 	if m.mouse.settings.Contains(x, y) {
 		m.toggleSettings()
