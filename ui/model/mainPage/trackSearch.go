@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/phantom-lancer/yatui/ui/components/search"
 	"github.com/phantom-lancer/yatui/ui/components/tracklist"
 	"github.com/phantom-lancer/yatui/ui/style"
 )
@@ -29,6 +30,20 @@ type trackSearchModel struct {
 	x, y, width, height int
 	firstRow            int
 	valid               bool
+}
+
+// openGlobalSearch opens the Yandex search dialog: it searches the whole
+// catalogue, not only the open list.
+func (m *Model) openGlobalSearch() tea.Cmd {
+	if m.searchDialog == nil {
+		return nil
+	}
+	m.trackSearch = nil
+	m.searchDialog.Title = "Поиск в Яндексе"
+	m.searchDialog.Action = "search"
+	m.isSearchActive = true
+	m.Send(search.UPDATE_SUGGESTIONS)
+	return tea.ClearScreen
 }
 
 // openTrackSearch shows the quick search over the current list.
@@ -177,7 +192,7 @@ func (m *Model) trackSearchView() string {
 		rows = append(rows, rowStyle.Render(line))
 	}
 
-	help := style.DialogHelpStyle.Render("↑/↓ — выбор, enter — играть, esc — выход")
+	help := style.DialogHelpStyle.Render("↑/↓ — выбор, enter — играть, tab — поиск в Яндексе, esc — выход")
 
 	box := style.DialogBoxStyle.Width(_TRACK_SEARCH_WIDTH).Render(lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -233,6 +248,8 @@ func (m *Model) trackSearchControl(message tea.Msg) (tea.Cmd, bool) {
 			return m.closeTrackSearch(), true
 		case "enter":
 			return m.playTrackSearchResult(), true
+		case "tab":
+			return m.openGlobalSearch(), true
 		case "up", "ctrl+p":
 			ts.up()
 			return nil, true

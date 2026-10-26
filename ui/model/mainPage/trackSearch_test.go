@@ -3,6 +3,7 @@ package mainpage
 import (
 	"testing"
 
+	"github.com/phantom-lancer/yatui/ui/components/search"
 	"github.com/phantom-lancer/yatui/ui/components/tracker"
 )
 
@@ -51,6 +52,7 @@ func TestTrackSearchOpensFromTheSidebar(t *testing.T) {
 	m.playlists = testPlaylists(t, []string{"list"})
 	m.playlists.SetFooter(m.settingsButtonView())
 	_ = m.playlists.View()
+	m.searchDialog = search.New()
 	m.updateMouseLayout("", "", "", "")
 
 	if m.mouse.search.IsEmpty() || m.mouse.settings.IsEmpty() {
@@ -61,7 +63,7 @@ func TestTrackSearchOpensFromTheSidebar(t *testing.T) {
 	}
 
 	m.mousePress(m.mouse.search.X+1, m.mouse.search.Y+1)
-	if m.trackSearch == nil {
-		t.Error("the search button did not open the search")
+	if !m.isSearchActive {
+		t.Error("the search button did not open the global search")
 	}
 }

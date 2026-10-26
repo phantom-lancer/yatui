@@ -323,9 +323,9 @@ func (m *Model) mouseMotion(x, y int) tea.Cmd {
 //
 
 func (m *Model) mousePress(x, y int) tea.Cmd {
-	// search button
+	// search button: the global Yandex search
 	if m.mouse.search.Contains(x, y) {
-		return m.openTrackSearch()
+		return m.openGlobalSearch()
 	}
 
 	// settings button
