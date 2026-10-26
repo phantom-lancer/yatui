@@ -32,9 +32,6 @@ const (
 	// _BAND_Q is the quality factor of the bands: it makes every band
 	// about an octave wide.
 	_BAND_Q = 1.41
-
-	// _LIMIT_KNEE is the level the limiter starts to work at.
-	_LIMIT_KNEE = 0.7
 )
 
 // BandFrequencies are the center frequencies of the bands, in hertz.
@@ -146,8 +143,7 @@ func peaking(freq, gainDB, rate float64) biquad {
 // guarded by a mutex: the audio thread takes it for the length of a buffer
 // only.
 //
-// preamp lowers the whole signal so that boosted bands cannot clip: it is
-// the biggest boost any band can add, in decibels.
+// Output is hard-clamped to int16 range, so a strong boost never clips.
 type Processor struct {
 	mu      sync.Mutex
 	enabled bool
@@ -155,8 +151,6 @@ type Processor struct {
 	coeffs  [Bands]biquad
 	// active are the indexes of the bands that change the signal.
 	active []int
-	// preamp lowers the whole signal so boosted bands cannot clip.
-	preamp float32
 	state  [Bands][2]biquadState
 	rate   int
 }
@@ -238,17 +232,6 @@ func (p *Processor) recompute() {
 		}
 		p.coeffs[i] = peaking(BandFrequencies[i], gain, rate)
 	}
-
-	// preamp lowers the whole signal by the biggest single-band boost so the
-	// boosted bands never clip the output. Cuts alone do not need any
-	// attenuation.
-	maxBoost := 0.0
-	for _, band := range p.active {
-		if p.gains[band] > maxBoost {
-			maxBoost = p.gains[band]
-		}
-	}
-	p.preamp = float32(math.Pow(10, -maxBoost/20))
 }
 
 // Apply processes the PCM of a track in place. The samples are signed 16 bit
@@ -261,13 +244,9 @@ func (p *Processor) Apply(pcm []byte) {
 		return
 	}
 
-	preamp := p.preamp
 	for i := 0; i+3 < len(pcm); i += 4 {
 		left := float32(int16(uint16(pcm[i])|uint16(pcm[i+1])<<8)) / 32768
 		right := float32(int16(uint16(pcm[i+2])|uint16(pcm[i+3])<<8)) / 32768
-
-		left *= preamp
-		right *= preamp
 
 		for _, band := range p.active {
 			coeff := &p.coeffs[band]
@@ -280,25 +259,16 @@ func (p *Processor) Apply(pcm []byte) {
 	}
 }
 
-// writeSample puts a sample back into the buffer, keeping it in range. The
-// samples that are over the top are rounded instead of being cut, so a
-// strong boost does not sound as a crackle.
+// writeSample puts a sample back into the buffer, keeping it in range.
+// Samples that go over the top are clamped: no soft curve, no crackle.
 func writeSample(dst []byte, value float32) {
-	abs := value
-	if abs < 0 {
-		abs = -abs
+	if value > 1 {
+		value = 1
+	} else if value < -1 {
+		value = -1
 	}
 
-	if abs > _LIMIT_KNEE {
-		// the curve is flat below the knee and reaches one asymptotically
-		over := (abs - _LIMIT_KNEE) / (1 - _LIMIT_KNEE)
-		abs = _LIMIT_KNEE + (1-_LIMIT_KNEE)*float32(math.Tanh(float64(over)))
-		if value < 0 {
-			abs = -abs
-		}
-	}
-
-	sample := int16(abs * 32767)
+	sample := int16(value * 32767)
 	dst[0] = byte(sample)
 	dst[1] = byte(sample >> 8)
 }
