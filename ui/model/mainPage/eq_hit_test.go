@@ -11,6 +11,8 @@ import (
 )
 
 func TestEqualizerHitboxes(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir())
+
 	m := &Model{width: 120, height: 40}
 	m.tracker = &tracker.Model{}
 	m.eq = &eqModel{enabled: true, preset: "Плоский", index: -1}

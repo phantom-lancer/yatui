@@ -386,10 +386,11 @@ func (m *Model) placeEqualizer() string {
 		strip := ansi.Strip(line)
 		if toggleY < 0 {
 			if idx := strings.Index(strip, "выкл"); idx >= 0 {
-				toggleX = x + idx
+				// byte index != cell index for Cyrillic: count cells
+				toggleX = x + lipgloss.Width(strip[:idx])
 				toggleY = y + i
 			} else if idx := strings.Index(strip, "вкл"); idx >= 0 {
-				toggleX = x + idx
+				toggleX = x + lipgloss.Width(strip[:idx])
 				toggleY = y + i
 			}
 		}
