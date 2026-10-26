@@ -3,6 +3,7 @@ package mainpage
 import (
 	"fmt"
 	"math"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -498,6 +499,9 @@ func (m *Model) buildSettings() []settingItem {
 			value: func() string {
 				return config.Path()
 			},
+			apply: func(dir int) tea.Cmd {
+				return openConfig()
+			},
 		},
 	}
 }
@@ -526,5 +530,18 @@ func (m *Model) saveConfig() {
 	if err := config.Save(); err != nil {
 		log.Print(log.LVL_WARNIGN, "failed to save config: %s", err)
 		m.showToast("Не удалось сохранить конфиг")
+	}
+}
+
+// openConfig opens the config file in Notepad so the user can edit it by hand
+// (for example the Last.fm api key and secret).
+func openConfig() tea.Cmd {
+	path := config.Path()
+	return func() tea.Msg {
+		cmd := exec.Command("notepad.exe", path)
+		if err := cmd.Start(); err != nil {
+			log.Print(log.LVL_WARNIGN, "failed to open config: %s", err)
+		}
+		return nil
 	}
 }

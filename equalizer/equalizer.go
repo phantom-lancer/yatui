@@ -145,6 +145,9 @@ func peaking(freq, gainDB, rate float64) biquad {
 // The settings are changed by the user while the music plays, so they are
 // guarded by a mutex: the audio thread takes it for the length of a buffer
 // only.
+//
+// preamp lowers the whole signal so that boosted bands cannot clip: it is
+// the biggest boost any band can add, in decibels.
 type Processor struct {
 	mu      sync.Mutex
 	enabled bool
@@ -152,6 +155,8 @@ type Processor struct {
 	coeffs  [Bands]biquad
 	// active are the indexes of the bands that change the signal.
 	active []int
+	// preamp lowers the whole signal so boosted bands cannot clip.
+	preamp float32
 	state  [Bands][2]biquadState
 	rate   int
 }
@@ -233,6 +238,17 @@ func (p *Processor) recompute() {
 		}
 		p.coeffs[i] = peaking(BandFrequencies[i], gain, rate)
 	}
+
+	// preamp lowers the whole signal by the biggest single-band boost so the
+	// boosted bands never clip the output. Cuts alone do not need any
+	// attenuation.
+	maxBoost := 0.0
+	for _, band := range p.active {
+		if p.gains[band] > maxBoost {
+			maxBoost = p.gains[band]
+		}
+	}
+	p.preamp = float32(math.Pow(10, -maxBoost/20))
 }
 
 // Apply processes the PCM of a track in place. The samples are signed 16 bit
@@ -245,9 +261,13 @@ func (p *Processor) Apply(pcm []byte) {
 		return
 	}
 
+	preamp := p.preamp
 	for i := 0; i+3 < len(pcm); i += 4 {
 		left := float32(int16(uint16(pcm[i])|uint16(pcm[i+1])<<8)) / 32768
 		right := float32(int16(uint16(pcm[i+2])|uint16(pcm[i+3])<<8)) / 32768
+
+		left *= preamp
+		right *= preamp
 
 		for _, band := range p.active {
 			coeff := &p.coeffs[band]
