@@ -5,7 +5,9 @@
 играет музыку напрямую с серверов Яндекс Музыки, поддерживает мышь, оформление
 и нормализацию громкости по стандарту ITU-R BS.1770 (EBU R128).
 
-<img width="1114" height="761" alt="WindowsTerminal_8kWjGoEoco" src="https://github.com/user-attachments/assets/17e327a2-7a61-4414-8263-ab1c5cd36baf" />
+<img width="1114" height="761" alt="yatui" src="https://github.com/user-attachments/assets/17e327a2-7a61-4414-8263-ab1c5cd36baf" />
+
+![Демо: поиск, эквалайзер, «Моя волна»](demo.gif)
 
 Это публичный форк [dece2183/yamusic-tui](https://github.com/DECE2183/yamusic-tui)
 — автор оригинала и исходный проект. Всё, что здесь есть сверх оригинала,
@@ -288,6 +290,29 @@ go build -o yatui .
 ```bash
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-w -s" -o yatui.exe .
 ```
+
+---
+
+## Запись демо
+
+`demo.gif` собирается из `demo.tape` через [VHS](https://github.com/charmbracelet/vhs) —
+запись терминала без экрана и монтажа.
+
+Нужны `vhs`, `ttyd` и `ffmpeg`:
+
+```powershell
+winget install ffmpeg
+go install github.com/charmbracelet/vhs@latest
+go install github.com/charmbracelet/ttyd@latest
+```
+
+Затем в корне проекта, с уже авторизованным `config.yaml`:
+
+```powershell
+vhs demo.tape
+```
+
+Сценарий: запуск, поиск `/`, эквалайзер `F9`, «Моя волна» `F10`, окно клавиш `?`.
 
 ---
 
