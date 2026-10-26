@@ -15,6 +15,12 @@ import (
 	"time"
 )
 
+// opcodes of the IPC protocol.
+const (
+	opHandshake = 0
+	opFrame     = 1
+)
+
 // Activity is one rich presence payload.
 type Activity struct {
 	Details           string      `json:"details,omitempty"`
@@ -57,23 +63,75 @@ type Client struct {
 	conn     io.ReadWriteCloser
 	clientID string
 	nonce    int
+	ready    chan struct{}
+	readyOne sync.Once
+	dead     bool
 }
 
-// Dial connects to the Discord client and performs the handshake.
+// Dial connects to the Discord client and waits until it says READY.
 func Dial(clientID string) (*Client, error) {
 	conn, err := dialDiscord()
 	if err != nil {
 		return nil, err
 	}
 
-	c := &Client{conn: conn, clientID: clientID}
+	c := &Client{conn: conn, clientID: clientID, ready: make(chan struct{})}
 
-	if err := c.send(0, map[string]interface{}{"v": 1, "client_id": clientID}); err != nil {
+	if err := c.send(opHandshake, map[string]interface{}{"v": 1, "client_id": clientID}); err != nil {
 		conn.Close()
 		return nil, err
 	}
 
-	return c, nil
+	go c.readLoop()
+
+	select {
+	case <-c.ready:
+		return c, nil
+	case <-time.After(3 * time.Second):
+		conn.Close()
+		return nil, errors.New("discordrpc: handshake timeout")
+	}
+}
+
+// readLoop drains the responses: Discord stops accepting writes when nobody
+// reads the pipe, which is exactly what caused i/o timeouts before.
+func (c *Client) readLoop() {
+	header := make([]byte, 8)
+	for {
+		if _, err := io.ReadFull(c.conn, header); err != nil {
+			c.mu.Lock()
+			c.dead = true
+			c.mu.Unlock()
+			c.readyOne.Do(func() { close(c.ready) })
+			return
+		}
+
+		size := int(binary.LittleEndian.Uint32(header[4:8]))
+		if size < 0 || size > 1<<20 {
+			continue
+		}
+		body := make([]byte, size)
+		if _, err := io.ReadFull(c.conn, body); err != nil {
+			c.mu.Lock()
+			c.dead = true
+			c.mu.Unlock()
+			return
+		}
+
+		var frame struct {
+			Evt string `json:"evt"`
+		}
+		if json.Unmarshal(body, &frame) == nil && frame.Evt == "READY" {
+			c.readyOne.Do(func() { close(c.ready) })
+		}
+	}
+}
+
+// Dead reports whether the pipe is already closed by Discord.
+func (c *Client) Dead() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dead || c.conn == nil
 }
 
 // SetActivity replaces the presence of the current process.
@@ -93,8 +151,12 @@ func (c *Client) command(args map[string]interface{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.dead {
+		return errors.New("discordrpc: connection closed")
+	}
+
 	c.nonce++
-	return c.send(1, map[string]interface{}{
+	return c.sendLocked(opFrame, map[string]interface{}{
 		"cmd":   "SET_ACTIVITY",
 		"args":  args,
 		"nonce": c.nonce,
@@ -108,12 +170,19 @@ func (c *Client) Close() error {
 	if c.conn == nil {
 		return nil
 	}
+	c.dead = true
 	err := c.conn.Close()
 	c.conn = nil
 	return err
 }
 
 func (c *Client) send(opcode int, payload interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sendLocked(opcode, payload)
+}
+
+func (c *Client) sendLocked(opcode int, payload interface{}) error {
 	if c.conn == nil {
 		return errors.New("discordrpc: not connected")
 	}
@@ -129,7 +198,7 @@ func (c *Client) send(opcode int, payload interface{}) error {
 	copy(frame[8:], body)
 
 	if setter, ok := c.conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
-		_ = setter.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		_ = setter.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	}
 	_, err = c.conn.Write(frame)
 	return err

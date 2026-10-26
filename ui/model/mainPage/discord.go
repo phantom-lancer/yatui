@@ -66,6 +66,15 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 			return
 		}
 		m.discord = client
+	} else if m.discord.Dead() {
+		_ = m.discord.Close()
+		m.discord = nil
+		m.discordKey = ""
+		client, err := discordrpc.Dial(discordClientID)
+		if err != nil {
+			return
+		}
+		m.discord = client
 	}
 
 	position := time.Duration(0)
@@ -85,9 +94,10 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 
 	activity := buildDiscordActivity(track, position, playing, stillPlaying, cfg)
 	key := discordActivityKey(activity)
-	if key == m.discordKey {
+	if key == m.discordKey && time.Since(m.discordSentAt) < time.Minute {
 		// Discord drops updates that repeat too often (rate limit), so only
-		// send when something actually changed.
+		// send when something changed. A minute is the keepalive interval,
+		// so a restarted Discord gets the card back by itself.
 		m.discordTrack = track
 		return
 	}
@@ -100,6 +110,7 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 		return
 	}
 	m.discordKey = key
+	m.discordSentAt = time.Now()
 	m.discordTrack = track
 }
 
@@ -149,6 +160,7 @@ func (m *Model) discordClear() {
 	}
 	_ = m.discord.Clear()
 	m.discordKey = ""
+	m.discordSentAt = time.Now()
 }
 
 // buildDiscordActivity copies the PulseSync card field by field and applies
