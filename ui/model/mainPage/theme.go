@@ -1,13 +1,15 @@
 package mainpage
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/ui/style"
 )
 
 // cycleTheme switches to the next known theme and applies it on the fly.
-func (m *Model) cycleTheme() {
+func (m *Model) cycleTheme() tea.Cmd {
 	names := config.ThemeNames()
 	next := names[0]
 
@@ -23,15 +25,16 @@ func (m *Model) cycleTheme() {
 		}
 	}
 
-	m.applyTheme(next)
+	return m.applyTheme(next)
 }
 
 // applyTheme replaces the colors, pushes them into every component and saves
-// the choice to config.yaml.
-func (m *Model) applyTheme(name string) {
+// the choice to config.yaml. When the animated theme is chosen, the returned
+// command starts its color loop.
+func (m *Model) applyTheme(name string) tea.Cmd {
 	colors, ok := config.ThemeColors(name)
 	if !ok {
-		return
+		return nil
 	}
 
 	// the colors the user had before the rgb theme are kept aside, so the
@@ -56,6 +59,12 @@ func (m *Model) applyTheme(name string) {
 	}
 
 	m.showToast("Тема: " + name)
+
+	if name == "rgb" {
+		return m.rgbStart()
+	}
+	m.rgbRunning = false
+	return nil
 }
 
 // themeReset restores the colors exactly as they are written in config.yaml,
@@ -73,6 +82,7 @@ func (m *Model) themeReset() {
 		config.Current.Style.Colors = config.Current.DevColors
 		config.Current.DevColors = nil
 	}
+	m.rgbRunning = false
 	style.Apply(config.Current.Style)
 
 	m.tracker.RefreshStyle()

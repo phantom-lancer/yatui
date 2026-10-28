@@ -119,6 +119,10 @@ type Model struct {
 
 	// scrobbleGen invalidates the pending Last.fm scrobble
 	scrobbleGen int64
+
+	// rgbRunning is set while the rgb color loop is alive, so switching the
+	// theme on and off never starts a second loop
+	rgbRunning bool
 }
 
 // mainpage.Model constructor.
@@ -170,7 +174,7 @@ func (m *Model) Send(msg tea.Msg) {
 func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd(), rgbStart())
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd(), m.rgbStart())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -334,12 +338,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case discordTickMsg:
 		m.discordSync()
-		var cmds []tea.Cmd
-		cmds = append(cmds, discordTickCmd())
-		if cmd := m.handleRgbTick(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		return m, tea.Batch(cmds...)
+		return m, discordTickCmd()
+
+	case rgbTickMsg:
+		return m, m.handleRgbTick()
 
 	case cacheListMsg:
 		m.applyCacheList(msg)
@@ -409,7 +411,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputDialog, cmd = m.inputDialog.Update(message)
 			cmds = append(cmds, cmd)
 		case controls.Theme.Contains(keypress):
-			m.cycleTheme()
+			cmds = append(cmds, m.cycleTheme())
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.ShowAllKeys.Contains(keypress):
 			m.toggleHelp()

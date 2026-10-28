@@ -106,8 +106,9 @@ func (m *Model) SeekToStart() tea.Cmd {
 	m.player.Seek(0, io.SeekStart)
 	m.playtime = 0
 	m.playStarted = time.Now()
+	m.progressFrac = 0
 
-	return m.progress.SetPercent(0)
+	return nil
 }
 
 // SetVolumeTo sets the volume to the given fraction of the maximum.

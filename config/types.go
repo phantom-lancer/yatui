@@ -216,6 +216,8 @@ type Config struct {
 	// over. It is written only by the theme code; deleting it (or the whole
 	// line) restores everything as it was. Not a user setting.
 	DevColors *Colors `yaml:"dev-colors,omitempty"`
+	// RgbSpeed is how fast the rgb theme cycles its colors (1..10).
+	RgbSpeed int `yaml:"rgb-speed"`
 }
 
 var defaultConfig = Config{
@@ -227,6 +229,7 @@ var defaultConfig = Config{
 	CacheTracks:    CACHE_LIKED_ONLY,
 	CacheDir:       "",
 	SuppressErrors: false,
+	RgbSpeed:       5,
 	Search: &Search{
 		Artists:   true,
 		Popular:   false,

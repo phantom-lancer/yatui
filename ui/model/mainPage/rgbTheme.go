@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"strconv"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,14 +10,18 @@ import (
 	"github.com/phantom-lancer/yatui/ui/style"
 )
 
-// The rgb theme slowly cycles the hue of the accent color (and everything
-// derived from it: borders, selection, lyrics dots). The animation reuses the
-// usual discord tick, so there is no extra goroutine and no repaint storm: the
-// hue advances once every 5 seconds, which reads as a smooth drift, not a
-// strobe.
+// The rgb theme slowly cycles the hue of the accent color and everything
+// derived from it. It runs on its own cheap timer: one small color update per
+// tick, no 60 fps loop, so the CPU cost stays near zero.
 
-// rgbHueStep is how much the hue moves on every tick.
-const rgbHueStep = 4
+const (
+	// rgbTickInterval is how often the hue advances.
+	rgbTickInterval = 200 * time.Millisecond
+	// rgbDefaultSpeed is the middle of the speed slider.
+	rgbDefaultSpeed = 5
+	// rgbMaxSpeed is the fastest step of the slider.
+	rgbMaxSpeed = 10
+)
 
 // rgbTickMsg carries the current hue around.
 type rgbTickMsg float64
@@ -26,30 +31,48 @@ func rgbActive() bool {
 	return config.Current.Style != nil && config.Current.Style.Theme == "rgb"
 }
 
-// rgbStart returns the command that resumes the animation, if it should run.
-func rgbStart() tea.Cmd {
+// rgbSpeed returns the configured speed in 1..rgbMaxSpeed ticks per step.
+func rgbSpeed() int {
+	if config.Current.RgbSpeed < 1 {
+		return rgbDefaultSpeed
+	}
+	if config.Current.RgbSpeed > rgbMaxSpeed {
+		return rgbMaxSpeed
+	}
+	return config.Current.RgbSpeed
+}
+
+// rgbStart returns the command that starts the animation, if it should run.
+// It is safe to call repeatedly: only one loop can be running.
+func (m *Model) rgbStart() tea.Cmd {
 	if !rgbActive() {
+		m.rgbRunning = false
 		return nil
 	}
+	if m.rgbRunning {
+		return nil
+	}
+	m.rgbRunning = true
 	return rgbTick()
 }
 
 func rgbTick() tea.Cmd {
-	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
-		return rgbTickMsg(rgbNextHue(rgbHueStep))
+	return tea.Tick(rgbTickInterval, func(time.Time) tea.Msg {
+		return rgbTickMsg(rgbHue)
 	})
 }
 
-// rgbNextHue advances the stored hue and returns it.
-func rgbNextHue(step float64) float64 {
-	rgbHue += step
-	if rgbHue >= 360 {
+var rgbHue float64
+
+// rgbAdvance moves the hue by one step. The step grows with the speed slider,
+// so "fast" really is faster: at the default 5 the accent makes a full circle
+// in about 18 seconds.
+func rgbAdvance() {
+	rgbHue += float64(rgbSpeed()) * 0.8
+	for rgbHue >= 360 {
 		rgbHue -= 360
 	}
-	return rgbHue
 }
-
-var rgbHue float64
 
 // rgbApply re-colors the accent family with the current hue. Only the colors
 // that follow the accent change; text and background stay put, so the screen
@@ -59,8 +82,7 @@ func rgbApply() {
 		return
 	}
 	colors := *config.Current.Style.Colors
-	accent := hslHex(rgbHue, 0.72, 0.60)
-	colors.Accent = accent
+	colors.Accent = hslHex(rgbHue, 0.72, 0.62)
 	// the selection and the lyrics "previous" follow the accent, darker and
 	// quieter, so the text stays readable
 	colors.PlaylistSelection = hslHex(rgbHue, 0.30, 0.16)
@@ -69,11 +91,14 @@ func rgbApply() {
 	style.Apply(config.Current.Style)
 }
 
-// handleRgbTick advances the animation. The returned command continues it.
+// handleRgbTick advances the animation. The returned command continues it, or
+// is nil once the theme is switched off.
 func (m *Model) handleRgbTick() tea.Cmd {
 	if !rgbActive() {
+		m.rgbRunning = false
 		return nil
 	}
+	rgbAdvance()
 	rgbApply()
 	m.tracker.RefreshStyle()
 	m.tracklist.RefreshStyle()
@@ -81,8 +106,20 @@ func (m *Model) handleRgbTick() tea.Cmd {
 	return rgbTick()
 }
 
-// rgbStop resets the animation flag; the pending tick simply dies when it
-// finds the theme switched off.
+// applyRgbSpeed saves a new speed, restarts the animation with it and shows
+// the choice.
+func (m *Model) applyRgbSpeed(speed int) tea.Cmd {
+	if speed < 1 {
+		speed = 1
+	}
+	if speed > rgbMaxSpeed {
+		speed = rgbMaxSpeed
+	}
+	config.Current.RgbSpeed = speed
+	m.saveConfig()
+	m.showToast("Скорость RGB: " + strconv.Itoa(speed))
+	return tea.ClearScreen
+}
 
 // hslHex renders an HSL color as a #rrggbb string.
 func hslHex(h, s, l float64) string {
@@ -126,7 +163,7 @@ func hslToRgb(h, s, l float64) (r, g, b float64) {
 	return r + m, g + m, b + m
 }
 
-// mod2 keeps only the fractional part of v modulo 2.
+// mod2 keeps the fractional part of v modulo 2.
 func mod2(v float64) float64 {
 	return v - float64(int(v/2)*2)
 }

@@ -67,9 +67,13 @@ type Model struct {
 	showError  bool
 	errorText  string
 
-	paused         bool
-	playtime       time.Duration
-	playStarted    time.Time
+	paused      bool
+	playtime    time.Duration
+	playStarted time.Time
+	// progressFrac is the real playback position in 0..1. It is drawn with
+	// sub-cell precision, so the bar moves smoothly instead of one cell at a
+	// time.
+	progressFrac   float64
 	volume         float64
 	volumeIncremet float64
 	lastVolumeKey  time.Time
@@ -137,9 +141,9 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.progress.Empty = m.progress.Full
 	m.progress.FullColor = string(style.AccentColor)
 	m.progress.EmptyColor = string(style.BackgroundColor)
-	// a soft spring animates between the updates smoothly instead of
-	// snapping to every new position
-	m.progress.SetSpringOptions(18, 0.14)
+	// no spring: the bar is rendered straight from the real position with
+	// sub-cell precision, so it never lags behind or overshoots
+	m.progress.SetSpringOptions(60, 1)
 
 	m.volumeBar.FullColor = string(style.AccentColor)
 	m.volumeBar.EmptyColor = string(style.BackgroundColor)
@@ -306,7 +310,11 @@ func (m *Model) view() (string, *Regions) {
 	}
 	m.progress.FullColor = string(progressFull)
 	m.progress.EmptyColor = string(style.BackgroundColor)
-	progressBlock := style.TrackProgressStyle.Render(m.progress.View())
+	// the bar is drawn by hand: the bubbles model can only fill whole cells,
+	// which makes the bar jump a cell every few seconds on a normal track
+	progressBlock := style.TrackProgressStyle.Render(
+		renderProgressBar(m.barPercent(), m.progress.Width, progressFull, style.BackgroundColor),
+	)
 	tracker := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		prevButton, transportGap, playButton, transportGap, nextButton, transportGap,
@@ -375,7 +383,7 @@ func (m *Model) view() (string, *Regions) {
 	trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackVersion)
 
 	durTotal := time.Millisecond * time.Duration(m.track.DurationMs)
-	durEllapsed := time.Millisecond * time.Duration(float64(m.track.DurationMs)*m.progress.Percent())
+	durEllapsed := time.Millisecond * time.Duration(float64(m.track.DurationMs)*m.barPercent())
 	trackTime := style.TrackVersionStyle.Render(fmt.Sprintf("%02d:%02d/%02d:%02d",
 		int(durEllapsed.Minutes()),
 		int(durEllapsed.Seconds())%60,
@@ -526,8 +534,9 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 
 	// track progress update
 	case ProgressControl:
-		cmd = m.progress.SetPercent(msg.Value())
-		cmds = append(cmds, cmd)
+		// the bar is drawn with sub-cell precision from the real position, so
+		// it creeps forward instead of jumping a whole cell at a time
+		m.progressFrac = clamp01(msg.Value())
 
 	case progress.FrameMsg:
 		var progressModel tea.Model
@@ -560,7 +569,22 @@ func (m *Model) Height() int {
 }
 
 func (m *Model) Progress() float64 {
-	return m.progress.Percent()
+	return m.progressFrac
+}
+
+// barPercent is the fraction the progress bar and the elapsed time show.
+func (m *Model) barPercent() float64 {
+	return clamp01(m.progressFrac)
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func (m *Model) Position() time.Duration {
@@ -757,7 +781,8 @@ func (m *Model) Rewind(amount time.Duration) tea.Cmd {
 		m.player.Seek(currentPos, io.SeekStart)
 	}
 
-	return m.progress.SetPercent(m.trackWrapper.Progress())
+	m.progressFrac = clamp01(m.trackWrapper.Progress())
+	return nil
 }
 
 func (m *Model) SetPos(pos time.Duration) {
@@ -772,6 +797,7 @@ func (m *Model) SetPos(pos time.Duration) {
 	// align position by 4 bytes
 	byteOffset += byteOffset % 4
 	m.player.Seek(byteOffset, io.SeekStart)
+	m.progressFrac = clamp01(float64(posMs) / float64(m.track.DurationMs))
 }
 
 func (m *Model) TrackBuffer() *stream.BufferedStream {

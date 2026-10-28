@@ -435,8 +435,18 @@ func (m *Model) buildSettings() []settingItem {
 				return config.Current.Style.Theme
 			},
 			apply: func(dir int) tea.Cmd {
-				m.cycleTheme()
-				return nil
+				cmd := m.cycleTheme()
+				// the row list depends on the theme (the rgb speed and the
+				// dev reset are only listed there), so rebuild it in place
+				if m.settings != nil {
+					index := m.settings.index
+					m.settings.items = m.buildSettings()
+					if index >= len(m.settings.items) {
+						index = len(m.settings.items) - 1
+					}
+					m.settings.index = index
+				}
+				return cmd
 			},
 		},
 		{
@@ -505,10 +515,31 @@ func (m *Model) buildSettings() []settingItem {
 		},
 	}
 
-	// the dev escape hatch is only listed while the animated theme runs:
-	// it puts every color back exactly as the config file has it, to compare
-	// the system load with and without the animation
+	// the rgb-only rows are listed while the animated theme runs: the speed
+	// slider and the dev escape hatch that stops the animation and puts every
+	// color back exactly as the config file has it
 	if config.Current.Style != nil && config.Current.Style.Theme == "rgb" {
+		items = append(items, settingItem{
+			label: "Скорость RGB",
+			kind:  settingNumber,
+			value: func() string {
+				switch speed := rgbSpeed(); {
+				case speed <= 2:
+					return fmt.Sprintf("медленно (%d)", speed)
+				case speed <= 4:
+					return fmt.Sprintf("спокойно (%d)", speed)
+				case speed <= 6:
+					return fmt.Sprintf("обычно (%d)", speed)
+				case speed <= 8:
+					return fmt.Sprintf("быстро (%d)", speed)
+				default:
+					return fmt.Sprintf("психоделика (%d)", speed)
+				}
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.applyRgbSpeed(rgbSpeed() + dir)
+			},
+		})
 		items = append(items, settingItem{
 			label: "RGB (для разрабов)",
 			kind:  settingChoice,
