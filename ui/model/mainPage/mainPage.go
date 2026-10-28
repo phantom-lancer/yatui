@@ -170,7 +170,7 @@ func (m *Model) Send(msg tea.Msg) {
 func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd())
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd(), rgbStart())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -334,7 +334,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case discordTickMsg:
 		m.discordSync()
-		return m, discordTickCmd()
+		var cmds []tea.Cmd
+		cmds = append(cmds, discordTickCmd())
+		if cmd := m.handleRgbTick(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 
 	case cacheListMsg:
 		m.applyCacheList(msg)

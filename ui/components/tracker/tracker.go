@@ -137,7 +137,9 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.progress.Empty = m.progress.Full
 	m.progress.FullColor = string(style.AccentColor)
 	m.progress.EmptyColor = string(style.BackgroundColor)
-	m.progress.SetSpringOptions(60, 1)
+	// a soft spring animates between the updates smoothly instead of
+	// snapping to every new position
+	m.progress.SetSpringOptions(18, 0.14)
 
 	m.volumeBar.FullColor = string(style.AccentColor)
 	m.volumeBar.EmptyColor = string(style.BackgroundColor)

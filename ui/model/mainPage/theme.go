@@ -34,6 +34,15 @@ func (m *Model) applyTheme(name string) {
 		return
 	}
 
+	// the colors the user had before the rgb theme are kept aside, so the
+	// hidden reset can put everything back exactly as it was
+	if name == "rgb" && config.Current.DevColors == nil && config.Current.Style != nil {
+		config.Current.DevColors = config.Current.Style.Colors
+	}
+	if name != "rgb" && config.Current.DevColors != nil {
+		config.Current.DevColors = nil
+	}
+
 	config.Current.Style.Theme = name
 	config.Current.Style.Colors = &colors
 	style.Apply(config.Current.Style)
@@ -47,4 +56,29 @@ func (m *Model) applyTheme(name string) {
 	}
 
 	m.showToast("Тема: " + name)
+}
+
+// themeReset restores the colors exactly as they are written in config.yaml,
+// ignoring the theme overlay. Developer escape hatch: it exists to compare
+// the system load with and without the rgb animation, so it is not bound to
+// any keybind and is only reachable through the config value below.
+func (m *Model) themeReset() {
+	if config.Current.Style == nil {
+		return
+	}
+	// clearing the theme name makes the config colors the source of truth
+	// again, exactly like "as before"
+	config.Current.Style.Theme = ""
+	if config.Current.DevColors != nil {
+		config.Current.Style.Colors = config.Current.DevColors
+		config.Current.DevColors = nil
+	}
+	style.Apply(config.Current.Style)
+
+	m.tracker.RefreshStyle()
+	m.tracklist.RefreshStyle()
+	m.playlists.RefreshStyle()
+	_ = config.Save()
+
+	m.showToast("Тема: как в конфиге")
 }

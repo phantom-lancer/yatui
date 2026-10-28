@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	_PROGRESS_UPDATE_PERIOD = 850 * time.Millisecond
+	_PROGRESS_UPDATE_PERIOD = 250 * time.Millisecond
 
 	// _LOUDNESS_ANALYSIS_SECONDS is how much of a track is decoded to measure
 	// its loudness on the very first play. The head of a track is only an

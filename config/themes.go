@@ -127,6 +127,27 @@ var themes = []Theme{
 			LyricsNext:        "#808080",
 		},
 	},
+	{
+		// the accent of the rgb theme is animated at runtime; these colors
+		// are only the starting point
+		Name: "rgb",
+		Colors: Colors{
+			Accent:            "#FF3B6B",
+			Error:             "#FF5555",
+			Border:            "#3A3A4A",
+			Background:        "#26262E",
+			PlaylistSelection: "#33333F",
+			ActiveText:        "#F5F5FA",
+			NormalText:        "#C8C8D4",
+			InactiveText:      "#6E6E80",
+			TrackTitleText:    "#E8E8F0",
+			TrackVersionText:  "#8A8AA0",
+			TrackArtistText:   "#A8A8BC",
+			LyricsPrevious:    "#3A3A4A",
+			LyricsCurrent:     "#F5F5FA",
+			LyricsNext:        "#8A8AA0",
+		},
+	},
 }
 
 // ThemeNames returns every known theme in switching order.

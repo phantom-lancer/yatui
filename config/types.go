@@ -212,6 +212,10 @@ type Config struct {
 	Equalizer      *Equalizer     `yaml:"equalizer"`
 	Controls       *Controls      `yaml:"controls"`
 	Style          *Style         `yaml:"style"`
+	// DevColors keeps the colors the config had before the rgb theme took
+	// over. It is written only by the theme code; deleting it (or the whole
+	// line) restores everything as it was. Not a user setting.
+	DevColors *Colors `yaml:"dev-colors,omitempty"`
 }
 
 var defaultConfig = Config{

@@ -39,6 +39,9 @@ var (
 	discordConn     *discordrpc.Client
 	discordLastKey  string
 	discordLastSent time.Time
+	// discordTimedOut is set once the AFK timeout removed the card. Only a
+	// resume of the playback clears it again.
+	discordTimedOut bool
 )
 
 func discordAsync(fn func()) {
@@ -134,14 +137,21 @@ func (m *Model) discordUpdate(track *api.Track, playing bool) {
 	}
 
 	if playing {
+		discordTimedOut = false
 		m.discordPausedAt = time.Time{}
 	} else if m.discordPausedAt.IsZero() {
 		m.discordPausedAt = time.Now()
 	}
 
+	m.discordTrack = track
+	if discordTimedOut {
+		// the AFK timeout has hidden the card: it stays hidden until the
+		// playback resumes, the keepalive must not resurrect it
+		return
+	}
+
 	activity := buildDiscordActivity(track, position, playing, cfg)
 	key := discordActivityKey(activity, playing)
-	m.discordTrack = track
 	discordSendAsync(activity, key)
 }
 
@@ -160,6 +170,7 @@ func discordActivityKey(activity discordrpc.Activity, playing bool) string {
 // discordSync refreshes the card from the player state on the timer.
 func (m *Model) discordSync() {
 	if !discordConfig().Enabled {
+		discordTimedOut = false
 		m.discordClear()
 		return
 	}
@@ -170,9 +181,19 @@ func (m *Model) discordSync() {
 		m.discordClear()
 		return
 	}
-	if !m.tracker.IsPlaying() && !m.discordPausedAt.IsZero() {
+	if m.tracker.IsPlaying() {
+		// resuming after the AFK timeout shows the card again
+		discordTimedOut = false
+		return
+	}
+	if discordTimedOut {
+		// the card is already hidden by the AFK timeout
+		return
+	}
+	if !m.discordPausedAt.IsZero() {
 		timeout := time.Duration(discordConfig().AfkTimeout) * time.Minute
 		if time.Since(m.discordPausedAt) >= timeout {
+			discordTimedOut = true
 			m.discordClear()
 			return
 		}

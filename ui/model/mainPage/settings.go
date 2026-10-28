@@ -332,7 +332,7 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 // read back from the config on every paint, so the rows always show the
 // current state.
 func (m *Model) buildSettings() []settingItem {
-	return []settingItem{
+	items := []settingItem{
 		{
 			label: "Громкость",
 			kind:  settingNumber,
@@ -504,6 +504,23 @@ func (m *Model) buildSettings() []settingItem {
 			},
 		},
 	}
+
+	// the dev escape hatch is only listed while the animated theme runs:
+	// it puts every color back exactly as the config file has it, to compare
+	// the system load with and without the animation
+	if config.Current.Style != nil && config.Current.Style.Theme == "rgb" {
+		items = append(items, settingItem{
+			label: "RGB (для разрабов)",
+			kind:  settingChoice,
+			value: func() string { return "выключить и вернуть как было" },
+			apply: func(dir int) tea.Cmd {
+				m.themeReset()
+				return tea.ClearScreen
+			},
+		})
+	}
+
+	return items
 }
 
 func cacheName(cache config.CacheType) string {
