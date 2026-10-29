@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -28,6 +29,9 @@ const (
 	// _TRACK_FAILURES_LIMIT is how many broken tracks in a row are skipped
 	// before the playback gives up.
 	_TRACK_FAILURES_LIMIT = 3
+	// coverMaxAge is how long the shared cover file stays valid. Playlist
+	// covers change now and then, so the file is refreshed once a week.
+	coverMaxAge = 7 * 24 * time.Hour
 )
 
 func (m *Model) feedbackOnTrack(batch string) *api.RotorFeedback {
@@ -204,7 +208,12 @@ func (m *Model) playTrack(track *api.Track) {
 		}
 		defer coverFile.Close()
 		stat, serr := coverFile.Stat()
-		if serr != nil || stat.Size() == 0 {
+		// a cover file is reused while it is fresh, so the playlist covers
+		// of the past are not downloaded again and again
+		fresh := serr == nil && stat.Size() > 0 && time.Since(stat.ModTime()) < coverMaxAge
+		if !fresh {
+			coverFile.Truncate(0)
+			coverFile.Seek(0, io.SeekStart)
 			cType, derr := api.DownloadTrackCover(coverFile, track, 200)
 			if derr != nil {
 				log.Print(log.LVL_WARNIGN, "unable to download track [%s] cover: %s", track.Id, derr)

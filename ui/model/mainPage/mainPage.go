@@ -1,8 +1,10 @@
 package mainpage
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/phantom-lancer/yatui/api"
@@ -123,6 +125,19 @@ type Model struct {
 	// rgbRunning is set while the rgb color loop is alive, so switching the
 	// theme on and off never starts a second loop
 	rgbRunning bool
+
+	// idleRendering: most frames do not change anything while a track simply
+	// plays, so a frame is only drawn when there is no new input for a moment.
+	// A trackpad in all-motion mode otherwise redraws the whole screen dozens
+	// of times a second just to move the highlight.
+	// idleRendering: a motion event or a progress sample on an idle screen
+	// postpones the frame, so the newest state is drawn once instead of every
+	// event redrawing the window
+	idlePending bool
+	idleSince   time.Time
+	// progressDrawn is when the frame with the playback progress was drawn:
+	// the bar is refreshed at the idle rate instead of every sample
+	progressDrawn time.Time
 }
 
 // mainpage.Model constructor.
@@ -174,6 +189,7 @@ func (m *Model) Send(msg tea.Msg) {
 func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
+	go m.pruneCoverCache()
 	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd(), m.rgbStart())
 }
 
@@ -182,6 +198,18 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
+
+	// idle screens draw once the input settles instead of per event
+	immediate, schedule := m.frameDecision(message)
+	if immediate {
+		// a drawn frame satisfies a postponed one
+		m.idlePending = false
+	}
+	if schedule && !m.idlePending {
+		m.idlePending = true
+		m.idleSince = time.Now()
+		cmds = append(cmds, idleRenderTick())
+	}
 
 	// the notifications are pruned before anything else: no dialog and no
 	// menu may swallow the timer, or the messages would stay on the screen
@@ -193,6 +221,20 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.scheduleToastExpiry()
 		}
 		return m, nil
+	}
+
+	// idle rendering: a peaceful pause draws a single frame with everything
+	// that changed meanwhile
+	if _, ok := message.(idleRenderMsg); ok {
+		return m, m.settleIdle()
+	}
+
+	// a new track or a resize always changes the whole screen
+	if m.idlePending {
+		switch message.(type) {
+		case tea.WindowSizeMsg:
+			return m, m.settleIdle()
+		}
 	}
 
 	// the help window captures the keys while it is open
@@ -868,9 +910,12 @@ func (m *Model) mediaHandle() {
 			}
 
 			md := handler.TrackMetadata{
-				TrackId:      track.Id,
-				Length:       time.Duration(track.DurationMs) * time.Millisecond,
-				CoverUrl:     m.coverFilePath(track),
+				TrackId: track.Id,
+				Length:  time.Duration(track.DurationMs) * time.Millisecond,
+				// the cover file is only written when it is missing, and the
+				// player asks for the metadata right after the track starts:
+				// on a fresh cover it can name the file before it exists
+				CoverUrl:     m.coverFileFor(track),
 				AlbumName:    albumName,
 				AlbumArtists: albumArtists,
 				Artists:      artists,
@@ -892,7 +937,104 @@ func (m *Model) coverFilePath(track *api.Track) string {
 	if os.MkdirAll(tempDir, 0755) != nil {
 		return ""
 	}
-	return filepath.Join(tempDir, track.Id+".jpg")
+	// one cover file, rewritten per track: a file per track grew without a
+	// bound in the temp directory
+	return filepath.Join(tempDir, "cover.jpg")
+}
+
+// coverFileFor is the file the player is told about: the shared cover when it
+// is ready, and nothing otherwise, rather than a stale picture of the
+// previous track.
+func (m *Model) coverFileFor(track *api.Track) string {
+	path := m.coverFilePath(track)
+	stat, err := os.Stat(path)
+	if err != nil || stat.Size() == 0 || time.Since(stat.ModTime()) > coverMaxAge {
+		return ""
+	}
+	return path
+}
+
+// maxCoverCacheFiles is how many legacy per-track cover files are kept: the
+// player used to write one file per track, so older installs have hundreds.
+const maxCoverCacheFiles = 20
+
+// pruneCoverCache keeps the shared cover file and drops the legacy per-track
+// cover files beyond the newest ones. The log grows without a bound too, so it
+// is cut back to its last megabyte.
+func (m *Model) pruneCoverCache() {
+	tempDir := filepath.Join(os.TempDir(), config.DirName)
+
+	pruneCoverDir(tempDir)
+
+	trimLogFile(filepath.Join(tempDir, config.DirName+".log"))
+}
+
+// pruneCoverDir drops the legacy per-track cover files beyond the newest
+// maxCoverCacheFiles, so an older install does not keep hundreds of them.
+func pruneCoverDir(tempDir string) {
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		return
+	}
+
+	type legacyCover struct {
+		name string
+		mod  time.Time
+	}
+	var covers []legacyCover
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".jpg" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		covers = append(covers, legacyCover{name: name, mod: info.ModTime()})
+	}
+
+	// the shared cover.jpg is a plain ".jpg" too, so it is simply treated
+	// as the oldest file: the newest maxCoverCacheFiles are kept
+	if len(covers) <= maxCoverCacheFiles {
+		return
+	}
+	sort.Slice(covers, func(i, j int) bool { return covers[i].mod.After(covers[j].mod) })
+	for _, cover := range covers[maxCoverCacheFiles:] {
+		os.Remove(filepath.Join(tempDir, cover.name))
+	}
+}
+
+// trimLogFile cuts a log down to its last megabyte once it grows past four.
+func trimLogFile(path string) {
+	stat, err := os.Stat(path)
+	if err != nil || stat.Size() <= 4<<20 {
+		return
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	if _, err := file.Seek(stat.Size()-(1<<20), io.SeekStart); err != nil {
+		return
+	}
+	tail := make([]byte, 1<<20)
+	n, _ := io.ReadFull(file, tail)
+
+	os.WriteFile(path, tail[:n], 0644)
+}
+
+// coverCacheSize is the size of the shared cover file on disk, 0 when it is
+// missing.
+func coverCacheSize() int64 {
+	path := filepath.Join(os.TempDir(), config.DirName, "cover.jpg")
+	if stat, err := os.Stat(path); err == nil {
+		return stat.Size()
+	}
+	return 0
 }
 
 func (m *Model) metadataFilePath() string {

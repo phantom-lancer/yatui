@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	mp3 "github.com/dece2183/go-stream-mp3"
 	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/equalizer"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
@@ -106,6 +107,11 @@ func (w *readWrapper) measureLoudness() {
 	bytesPerSecond := meter.sampleRate * 4
 	buffer := make([]byte, 32*1024)
 	wanted := bytesPerSecond * _LOUDNESS_ANALYSIS_SECONDS
+	// the quick measurement reads the first second only: cheap, and close
+	// enough thanks to the per-track correction measured while playing
+	if config.Current.Normalization != nil && config.Current.Normalization.Fast {
+		wanted = bytesPerSecond
+	}
 	read := 0
 
 	for read < wanted {

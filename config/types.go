@@ -133,6 +133,9 @@ type Controls struct {
 // Yandex Music sends with every track (api.Track.Normalization).
 type Normalization struct {
 	Enabled bool `yaml:"enabled"`
+	// Fast measures the gain on the first second of a track instead of the
+	// first ten, so starting a new track decodes ten times less audio.
+	Fast bool `yaml:"fast,omitempty"`
 }
 
 // Wave holds the settings of the main wave. The values are the ones the

@@ -426,6 +426,31 @@ func (m *Model) buildSettings() []settingItem {
 			},
 		},
 		{
+			// the gain is measured by decoding the track: off is the lightest
+			// mode for the CPU
+			label: "Точность нормализации",
+			kind:  settingBool,
+			value: func() string {
+				if config.Current.Normalization == nil || !config.Current.Normalization.Fast {
+					return "точно (10 с трека)"
+				}
+				return "быстро (1 с трека, экономно)"
+			},
+			apply: func(dir int) tea.Cmd {
+				if config.Current.Normalization == nil {
+					config.Current.Normalization = &config.Normalization{}
+				}
+				config.Current.Normalization.Fast = !config.Current.Normalization.Fast
+				m.saveConfig()
+				if config.Current.Normalization.Fast {
+					m.showToast("Нормализация: быстрый замер")
+				} else {
+					m.showToast("Нормализация: точный замер")
+				}
+				return nil
+			},
+		},
+		{
 			label: "Тема",
 			kind:  settingChoice,
 			value: func() string {
