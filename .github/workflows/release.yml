@@ -72,4 +72,4 @@ jobs:
       - name: Upload
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
