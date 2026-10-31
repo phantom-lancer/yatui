@@ -11,6 +11,7 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/oauth"
 )
 
 var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -101,6 +102,26 @@ func TestHoverHighlightsTheButton(t *testing.T) {
 	}
 }
 
+// TestDeviceCodeIsShown checks that the waiting screen tells what to do: the
+// page and the short code are on it.
+func TestDeviceCodeIsShown(t *testing.T) {
+	m := loginModel()
+	m.busy = true
+	m.busyText = "Waiting for the browser..."
+	m.device = &oauth.DeviceCode{
+		UserCode:        "abcd-efgh",
+		VerificationURL: "https://ya.ru/device",
+	}
+
+	view := ansi.ReplaceAllString(m.View(), "")
+	if !strings.Contains(view, "abcd-efgh") {
+		t.Fatal("the short code is not on the screen")
+	}
+	if !strings.Contains(view, "https://ya.ru/device") {
+		t.Fatal("the page is not on the screen")
+	}
+}
+
 // TestRejectedTokenIsNotSaved checks that a token without access to the Music
 // API never replaces the working one.
 func TestRejectedTokenIsNotSaved(t *testing.T) {
@@ -133,7 +154,7 @@ func TestOauthAnswerResumesTheScreen(t *testing.T) {
 	m := loginModel()
 	m.busy = true
 
-	m.Update(oauthDoneMsg{err: errTest{}})
+	m.Update(deviceTokenMsg{err: errTest{}})
 	if m.busy {
 		t.Fatal("the waiting state must end after an error")
 	}

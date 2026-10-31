@@ -34,6 +34,9 @@ type Model struct {
 	busyText string
 	uiErr    error
 
+	// device is set while the user approves the short code on the Yandex page
+	device *oauth.DeviceCode
+
 	// hover is set while the mouse is over the button, so it reacts like a
 	// button of the main page
 	hover bool
@@ -121,9 +124,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, tea.ClearScreen
 
-	case oauthDoneMsg:
+	case deviceCodeMsg:
 		if msg.err != nil {
 			m.busy = false
+			m.uiErr = msg.err
+			return m, nil
+		}
+		m.device = msg.code
+		return m, m.waitToken(msg.code)
+
+	case deviceTokenMsg:
+		m.busy = false
+		m.device = nil
+		if msg.err != nil {
 			m.uiErr = msg.err
 			return m, nil
 		}
@@ -140,13 +153,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.accept(msg.token)
 		}
 		if msg.source == sourceOAuth {
-			m.uiErr = errors.New("Yandex does not let this app use the Music API. " +
-				"Take a token from the 'Yandex Music Token' extension: " +
-				"open music.yandex.ru, copy the token and paste it here. " +
+			m.uiErr = errors.New("Yandex refused the Music API access for this sign-in. " +
+				"Try again, or paste a token of music.yandex.ru. " +
 				"The saved token was not changed.")
 		} else {
 			m.uiErr = errors.New("this token cannot open the Music API. " +
-				"Copy the token from the 'Yandex Music Token' extension on music.yandex.ru. " +
+				"Check that it is a token of music.yandex.ru. " +
 				"The saved token was not changed.")
 		}
 		return m, nil
@@ -202,6 +214,15 @@ func (m *Model) View() string {
 
 	var content string
 	switch {
+	case m.busy && m.device != nil:
+		m.buttonW = 0
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			title,
+			style.AccentTextStyle.Render("Waiting for the browser..."),
+			"Open "+m.device.VerificationURL+" and enter the code:",
+			style.AccentTextStyle.Bold(true).Render(m.device.UserCode),
+			style.DialogHelpStyle.Render("the code is copied to the clipboard"),
+		)
 	case m.busy:
 		m.buttonW = 0
 		content = lipgloss.JoinVertical(lipgloss.Left,
@@ -224,7 +245,7 @@ func (m *Model) View() string {
 	var hint string
 	if !m.busy {
 		hint = style.DialogHelpStyle.Render(
-			"Token: music.yandex.ru -> the 'Yandex Music Token' extension -> copy")
+			"Paste a music.yandex.ru token, or press the button to sign in on ya.ru/device")
 	}
 
 	block := lipgloss.JoinVertical(lipgloss.Left, box, hint, helpView)
@@ -299,7 +320,7 @@ func (m *Model) confirm() tea.Cmd {
 	}
 	token := strings.TrimSpace(m.input.Value())
 	if token == "" {
-		return m.startOAuth()
+		return m.startDevice()
 	}
 	return m.checkToken(token, sourcePaste)
 }
@@ -322,23 +343,48 @@ func (m *Model) checkToken(token string, source tokenSource) tea.Cmd {
 	}
 }
 
-// startOAuth runs the browser authorization in the background: the model is
+// startDevice asks Yandex for a device code in the background: the model is
 // only touched by the message the command sends back.
-func (m *Model) startOAuth() tea.Cmd {
+func (m *Model) startDevice() tea.Cmd {
 	m.busy = true
-	m.busyText = "Waiting for the browser..."
+	m.busyText = "Asking Yandex for a code..."
 	m.uiErr = nil
+	m.device = nil
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), oauthTimeout)
 		defer cancel()
 
-		token, err := oauth.GetToken(ctx)
-		return oauthDoneMsg{token: token, err: err}
+		code, err := oauth.RequestCode(ctx)
+		if err == nil {
+			// the code is short: put it into the clipboard and open the page,
+			// so the user only pastes and confirms
+			oauth.CopyToClipboard(code.UserCode)
+			oauth.OpenBrowser(code.VerificationURL)
+		}
+		return deviceCodeMsg{code: code, err: err}
 	}
 }
 
-// oauthDoneMsg is the result of the browser authorization.
-type oauthDoneMsg struct {
+// waitToken polls the token endpoint while the user confirms the code.
+func (m *Model) waitToken(code *oauth.DeviceCode) tea.Cmd {
+	m.busyText = "Waiting for the browser..."
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), oauthTimeout)
+		defer cancel()
+
+		token, err := oauth.WaitToken(ctx, code)
+		return deviceTokenMsg{token: token, err: err}
+	}
+}
+
+// deviceCodeMsg is the short code the user types on the Yandex page.
+type deviceCodeMsg struct {
+	code *oauth.DeviceCode
+	err  error
+}
+
+// deviceTokenMsg is the result of the confirmation on the Yandex page.
+type deviceTokenMsg struct {
 	token string
 	err   error
 }

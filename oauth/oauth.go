@@ -1,24 +1,18 @@
-// Package oauth obtains a Yandex token through the OAuth authorization code
-// flow with PKCE.
-//
-// The client is registered on oauth.yandex.ru as a web service with the
-// redirect URI http://127.0.0.1:8080: the browser is sent there after the
-// user allows the access, and the local server hands the code over to the
-// token endpoint.
+// Package oauth signs in to Yandex Music with the device flow: the user gets
+// a short code, approves it on the Yandex page, and the token is polled in the
+// background. The client is the one the official Music app uses, so the token
+// can open the Music API, unlike the token of a self-registered app.
 package oauth
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -26,12 +20,14 @@ import (
 )
 
 const (
-	// clientID and clientSecret belong to the "yatui" web service of the
-	// user. The redirect URI of that client must match redirectURI exactly.
-	clientID     = "31c5aa11dbdd4fdd8752aa462ce0db47"
-	clientSecret = "8c6c3f12a9d5446b8fcf5e47e157c1c3"
-	redirectURI  = "http://127.0.0.1:8080"
+	clientID     = "23cabbbdc6cd418abb4b39c32c41195d"
+	clientSecret = "53bc75238f0c4d08a118e51fe9203300"
+
+	deviceName = "yatui"
 )
+
+// oauthServer is a variable, so the tests can answer instead of Yandex.
+var oauthServer = "https://oauth.yandex.ru"
 
 // OAuthError is an error returned by Yandex OAuth.
 type OAuthError struct {
@@ -46,139 +42,108 @@ func (e *OAuthError) Error() string {
 	return e.Code
 }
 
+// DeviceCode is the answer of the device authorization request.
+type DeviceCode struct {
+	Code            string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURL string `json:"verification_url"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
 // TokenResponse is the answer of the token endpoint.
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken string `json:"access_token"`
 }
 
-// GetToken performs the authorization code flow: it opens the browser, waits
-// for the callback and exchanges the code for a token. The caller decides how
-// long the user may take through ctx.
-func GetToken(ctx context.Context) (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:8080")
-	if err != nil {
-		return "", fmt.Errorf("port 8080 is busy: %w", err)
-	}
-	defer listener.Close()
-
-	verifier := randomString()
-	state := randomString()
-
-	answers := make(chan oauthAnswer, 1)
-	server := &http.Server{Handler: callbackHandler(state, answers)}
-	go server.Serve(listener)
-	defer shutdown(server)
-
-	openBrowser(authorizeURL(state, verifier))
-
-	code, err := awaitCode(ctx, answers)
-	if err != nil {
-		return "", err
-	}
-	return exchangeCode(ctx, code, verifier)
-}
-
-// callbackHandler answers the redirect of the browser. The state proves that
-// the request belongs to the authorization the program has started.
-func callbackHandler(state string, answers chan<- oauthAnswer) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.Query()
-		if query.Get("state") != state {
-			http.Error(w, "unexpected request", http.StatusBadRequest)
-			return
-		}
-
-		if code := query.Get("error"); code != "" {
-			page(w, http.StatusBadRequest, "Authorization failed",
-				query.Get("error_description"))
-			answers <- oauthAnswer{err: &OAuthError{
-				Code:        code,
-				Description: query.Get("error_description"),
-			}}
-			return
-		}
-
-		if code := query.Get("code"); code != "" {
-			page(w, http.StatusOK, "Authorization successful!",
-				"You can close this page and return to yatui.")
-			answers <- oauthAnswer{code: code}
-			return
-		}
-
-		http.NotFound(w, r)
-	})
-	return mux
-}
-
-// oauthAnswer carries the result of the callback; the buffer keeps the
-// handler from blocking on a late second request.
-type oauthAnswer struct {
-	code string
-	err  error
-}
-
-func awaitCode(ctx context.Context, answers <-chan oauthAnswer) (string, error) {
-	select {
-	case a := <-answers:
-		return a.code, a.err
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-}
-
-// authorizeURL builds the address the browser opens. The permissions are the
-// ones chosen for the client at registration, so no scope is requested here.
-func authorizeURL(state, verifier string) string {
-	query := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {clientID},
-		"redirect_uri":          {redirectURI},
-		"state":                 {state},
-		"code_challenge":        {codeChallenge(verifier)},
-		"code_challenge_method": {"S256"},
-	}
-	return "https://oauth.yandex.ru/authorize?" + query.Encode()
-}
-
-// exchangeCode trades the code for a token. The client secret is passed with
-// Basic auth, the PKCE verifier proves that the code belongs to this attempt.
-func exchangeCode(ctx context.Context, code, verifier string) (string, error) {
+// RequestCode asks Yandex for a device code: the user is told to open the page
+// and enter the short code, while the long one is kept for the polling.
+func RequestCode(ctx context.Context) (*DeviceCode, error) {
 	form := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"code_verifier": {verifier},
-		"redirect_uri":  {redirectURI},
+		"client_id":   {clientID},
+		"device_id":   {deviceID()},
+		"device_name": {deviceName},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://oauth.yandex.ru/token", strings.NewReader(form.Encode()))
+	body, err := postForm(ctx, oauthServer+"/device/code", form)
 	if err != nil {
-		return "", err
-	}
-	req.SetBasicAuth(clientID, clientSecret)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		var oauthErr OAuthError
-		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Code != "" {
-			return "", &oauthErr
+	var code DeviceCode
+	if err := json.Unmarshal(body, &code); err != nil {
+		return nil, err
+	}
+	if code.Code == "" || code.UserCode == "" {
+		return nil, errors.New("empty device code in the response")
+	}
+	if code.VerificationURL == "" {
+		code.VerificationURL = "https://ya.ru/device"
+	}
+	return &code, nil
+}
+
+// WaitToken polls the token endpoint until the user approves the code. Yandex
+// answers authorization_pending while the page is still open, and slow_down
+// when the polling is too fast.
+func WaitToken(ctx context.Context, code *DeviceCode) (string, error) {
+	interval := time.Duration(code.Interval) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+
+	deadline := time.Now().Add(time.Duration(code.ExpiresIn) * time.Second)
+	if code.ExpiresIn <= 0 {
+		deadline = time.Now().Add(5 * time.Minute)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(interval):
 		}
-		return "", fmt.Errorf("token request failed (%d): %s",
-			resp.StatusCode, strings.TrimSpace(string(body)))
+
+		if time.Now().After(deadline) {
+			return "", &OAuthError{Code: "expired_token",
+				Description: "the code has expired, start the sign-in again"}
+		}
+
+		token, err := pollToken(ctx, code.Code)
+		if err == nil {
+			return token, nil
+		}
+
+		var oauthErr *OAuthError
+		if !errors.As(err, &oauthErr) {
+			return "", err
+		}
+
+		switch oauthErr.Code {
+		case "authorization_pending":
+			continue
+		case "slow_down":
+			interval += 5 * time.Second
+			continue
+		default:
+			return "", err
+		}
+	}
+}
+
+// pollToken makes one request to the token endpoint. The answer is 400 with
+// authorization_pending until the user approves the code.
+func pollToken(ctx context.Context, deviceCode string) (string, error) {
+	form := url.Values{
+		"grant_type":    {"device_code"},
+		"code":          {deviceCode},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+	}
+
+	body, err := postForm(ctx, oauthServer+"/token", form)
+	if err != nil {
+		return "", err
 	}
 
 	var token TokenResponse
@@ -191,44 +156,52 @@ func exchangeCode(ctx context.Context, code, verifier string) (string, error) {
 	return token.AccessToken, nil
 }
 
-// randomString is a code verifier and a state: 32 random bytes in base64url.
-func randomString() string {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		// crypto/rand never fails on the supported systems; a weak value is
-		// still better than no authorization at all
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+// postForm sends the form and returns the body: a refusal of Yandex is turned
+// into OAuthError, so the caller can tell a pending code from a real problem.
+func postForm(ctx context.Context, address string, form url.Values) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address,
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
 	}
-	return base64.RawURLEncoding.EncodeToString(bytes)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var oauthErr OAuthError
+		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Code != "" {
+			return nil, &oauthErr
+		}
+		return nil, fmt.Errorf("request failed (%d): %s",
+			resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }
 
-func codeChallenge(verifier string) string {
-	hash := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(hash[:])
+// deviceID is a stable name of this installation: Yandex shows the devices
+// that have access to the account, and a new random id on every sign-in would
+// fill that list.
+func deviceID() string {
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return host
+	}
+	return fmt.Sprintf("yatui-%d", time.Now().UnixNano())
 }
 
-// page shows a short message in the browser after the redirect.
-func page(w http.ResponseWriter, status int, title, text string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	io.WriteString(w, `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>`+title+`</title></head>
-<body style="font-family:system-ui;text-align:center;padding:50px;background:#1a1a2e;color:#e0e0e0;">
-<h2>`+title+`</h2><p>`+text+`</p>
-</body></html>`)
-}
-
-// shutdown closes the local server after the page has been sent.
-func shutdown(server *http.Server) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = server.Shutdown(ctx)
-}
-
-// openBrowser opens the address in the default browser. On Windows the whole
-// address is passed to rundll32: "cmd /c start" would cut it at the first &
-// and lose the query parameters.
-func openBrowser(target string) {
+// OpenBrowser opens the address in the default browser. On Windows the whole
+// address is passed to rundll32: "cmd /c start" cuts it at the first &.
+func OpenBrowser(target string) {
 	switch runtime.GOOS {
 	case "windows":
 		exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
@@ -237,4 +210,21 @@ func openBrowser(target string) {
 	default:
 		exec.Command("xdg-open", target).Start()
 	}
+}
+
+// CopyToClipboard puts the short code into the clipboard, so the user only
+// pastes it on the Yandex page. Other systems are left to the user: there is
+// no standard clipboard tool there.
+func CopyToClipboard(text string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "clip")
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	default:
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	}
+	cmd.Stdin = strings.NewReader(text)
+	_ = cmd.Run()
 }
