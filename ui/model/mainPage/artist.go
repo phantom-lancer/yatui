@@ -27,7 +27,7 @@ func (m *Model) showArtist(track *api.Track) tea.Cmd {
 	go func() {
 		defer m.Send(LOADING_DONE)
 
-		popular, err := m.client.ArtistPopularTracks(artist.Id)
+		popular, err := m.client.ArtistPopularTracks(uint64(artist.Id))
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to obtain artist [%s] tracks: %s", artist.Name, err)
 			m.tracker.ShowError("artist tracks")

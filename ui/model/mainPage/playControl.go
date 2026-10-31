@@ -52,7 +52,7 @@ func (m *Model) feedbackOnTrack(batch string) *api.RotorFeedback {
 }
 
 func (m *Model) rotateTracks(pl *playlist.Item) {
-	if !pl.Rotor {
+	if !pl.Rotor || m.client == nil {
 		return
 	}
 
@@ -62,21 +62,28 @@ func (m *Model) rotateTracks(pl *playlist.Item) {
 		m.tracker.ShowError("next track obtain failure")
 		return
 	}
+	if len(suggestedTracks.Sequence) == 0 {
+		log.Print(log.LVL_WARNIGN, "the radio session returned no tracks")
+		return
+	}
+	nextTrack := suggestedTracks.Sequence[0].Track
 
 	pl.SessionBatch = suggestedTracks.BatchId
-	pl.Tracks = append(pl.Tracks, suggestedTracks.Sequence[0].Track)
-	if m.playlists.Items()[m.currentPlaylistIndex].IsSame(pl) {
+	pl.Tracks = append(pl.Tracks, nextTrack)
+	if m.currentPlaylistIndex >= 0 && m.playlists.Items()[m.currentPlaylistIndex].IsSame(pl) {
 		m.playQueue = pl.Tracks
 	}
 
 	if m.playlists.SelectedItem().IsSame(pl) {
 		tackItems := m.tracklist.Items()
-		lastTrack := tackItems[len(tackItems)-1]
-		lastTrack.IsSuggestion = false
-		m.tracklist.SetItem(len(tackItems)-1, lastTrack)
+		if len(tackItems) > 0 {
+			lastTrack := tackItems[len(tackItems)-1]
+			lastTrack.IsSuggestion = false
+			m.tracklist.SetItem(len(tackItems)-1, lastTrack)
+		}
 		m.tracklist.InsertItem(-1, tracklist.Item{
 			Track:        &pl.Tracks[len(pl.Tracks)-1],
-			Artists:      helpers.ArtistList(suggestedTracks.Sequence[0].Track.Artists),
+			Artists:      helpers.ArtistList(nextTrack.Artists),
 			IsSuggestion: true,
 		})
 	}
@@ -190,9 +197,29 @@ func (m *Model) nextTrack() {
 	m.playTrack(track)
 }
 
+// trackReadyMsg carries a prepared track back to the UI loop. The download
+// runs in its own goroutine: a slow network must never freeze the window.
+type trackReadyMsg struct {
+	generation int64
+	track      *api.Track
+	buffer     *stream.BufferedStream
+	fromCache  bool
+	lyrics     []api.LyricPair
+	err        error
+}
+
 func (m *Model) playTrack(track *api.Track) {
 	m.tracker.Stop()
+	// a new track drops the download that may still be in flight
+	m.playGeneration++
+	m.loadingTrackId = track.Id
+	m.tracker.LoadTrack(track)
 
+	go m.loadTrack(m.playGeneration, track)
+}
+
+// loadTrack downloads everything the track needs and hands it to the UI loop.
+func (m *Model) loadTrack(generation int64, track *api.Track) {
 	var (
 		wg sync.WaitGroup
 
@@ -239,7 +266,7 @@ func (m *Model) playTrack(track *api.Track) {
 		}
 	}()
 
-	if track.LyricsInfo.HasAvailableSyncLyrics {
+	if track.LyricsInfo.HasAvailableSyncLyrics && m.client != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -261,6 +288,10 @@ func (m *Model) playTrack(track *api.Track) {
 			trackReader = tr
 			trackSize = ts
 			trackFromCache = true
+			return
+		}
+		if m.client == nil {
+			downloadErr = errors.New("no yandex client")
 			return
 		}
 		var lastErr error
@@ -302,52 +333,90 @@ func (m *Model) playTrack(track *api.Track) {
 	wg.Wait()
 
 	if downloadErr != nil && trackReader == nil {
-		m.tracker.ShowError("track download")
+		m.Send(trackReadyMsg{generation: generation, track: track, err: downloadErr})
 		return
 	}
 
 	trackBuffer := stream.NewBufferedStream(trackReader, trackSize)
+	m.writeTrackMetadata(track, trackBuffer, trackFromCache, coverType, coverBytes)
+	m.Send(trackReadyMsg{
+		generation: generation,
+		track:      track,
+		buffer:     trackBuffer,
+		fromCache:  trackFromCache,
+		lyrics:     lyrics,
+	})
+}
+
+// writeTrackMetadata writes the tags and the head of the track to the file the
+// media integrations read. A failure is not fatal: the track plays without a
+// cover and without scrobbling metadata.
+func (m *Model) writeTrackMetadata(track *api.Track, trackBuffer *stream.BufferedStream, fromCache bool, coverType string, coverBytes []byte) {
 	metadataFile, err := os.OpenFile(m.metadataFilePath(), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
-	if err == nil {
-		tag := id3v2.NewEmptyTag()
-		if trackFromCache {
-			tag.Reset(trackBuffer, id3v2.Options{Parse: true})
-		} else {
-			tag.SetDefaultEncoding(id3v2.EncodingUTF8)
-			tag.SetTitle(track.Title)
-			if len(track.Albums) != 0 {
-				tag.SetAlbum(track.Albums[0].Title)
-				tag.SetGenre(track.Albums[0].Genre)
-				tag.SetYear(fmt.Sprint(track.Albums[0].Year))
-			}
-			artists := make([]string, 0, len(track.Artists))
-			for i := range track.Artists {
-				artists = append(artists, track.Artists[i].Name)
-				tag.AddFrame(cache.TAG_ARTIST_ID, id3v2.UserDefinedTextFrame{
-					Encoding:    id3v2.EncodingUTF8,
-					Description: fmt.Sprint(i),
-					Value:       fmt.Sprint(track.Artists[i].Id),
-				})
-			}
-			tag.SetArtist(strings.Join(artists, ","))
-			tag.AddAttachedPicture(id3v2.PictureFrame{
-				MimeType:    coverType,
-				PictureType: id3v2.PTFrontCover,
-				Encoding:    id3v2.EncodingUTF16BE,
-				Picture:     coverBytes,
-			})
-			tag.AddTextFrame(cache.TAG_TRACK_ID, id3v2.EncodingUTF8, fmt.Sprint(track.Id))
-			tag.AddTextFrame(cache.TAG_DURATION, id3v2.EncodingUTF8, fmt.Sprint(track.DurationMs))
-		}
-		tag.WriteTo(metadataFile)
-		io.CopyN(metadataFile, trackBuffer, 32*1024)
-		trackBuffer.Seek(0, io.SeekStart)
-		metadataFile.Close()
-	} else {
+	if err != nil {
 		log.Print(log.LVL_WARNIGN, "failed to create metadata file: %s", err)
+		return
+	}
+	defer metadataFile.Close()
+
+	tag := id3v2.NewEmptyTag()
+	if fromCache {
+		tag.Reset(trackBuffer, id3v2.Options{Parse: true})
+	} else {
+		tag.SetDefaultEncoding(id3v2.EncodingUTF8)
+		tag.SetTitle(track.Title)
+		if len(track.Albums) != 0 {
+			tag.SetAlbum(track.Albums[0].Title)
+			tag.SetGenre(track.Albums[0].Genre)
+			tag.SetYear(fmt.Sprint(track.Albums[0].Year))
+		}
+		artists := make([]string, 0, len(track.Artists))
+		for i := range track.Artists {
+			artists = append(artists, track.Artists[i].Name)
+			tag.AddFrame(cache.TAG_ARTIST_ID, id3v2.UserDefinedTextFrame{
+				Encoding:    id3v2.EncodingUTF8,
+				Description: fmt.Sprint(i),
+				Value:       fmt.Sprint(track.Artists[i].Id),
+			})
+		}
+		tag.SetArtist(strings.Join(artists, ","))
+		tag.AddAttachedPicture(id3v2.PictureFrame{
+			MimeType:    coverType,
+			PictureType: id3v2.PTFrontCover,
+			Encoding:    id3v2.EncodingUTF16BE,
+			Picture:     coverBytes,
+		})
+		tag.AddTextFrame(cache.TAG_TRACK_ID, id3v2.EncodingUTF8, fmt.Sprint(track.Id))
+		tag.AddTextFrame(cache.TAG_DURATION, id3v2.EncodingUTF8, fmt.Sprint(track.DurationMs))
+	}
+	tag.WriteTo(metadataFile)
+	io.CopyN(metadataFile, trackBuffer, 32*1024)
+	trackBuffer.Seek(0, io.SeekStart)
+}
+
+// applyLoadedTrack starts the downloaded track. It runs on the UI loop, so the
+// player and the queue are only touched by one goroutine.
+func (m *Model) applyLoadedTrack(msg trackReadyMsg) {
+	if msg.generation != m.playGeneration {
+		// a newer track was requested while this one was downloading
+		if msg.buffer != nil {
+			msg.buffer.Close()
+		}
+		return
 	}
 
-	if m.currentPlaylistIndex >= 0 {
+	m.loadingTrackId = ""
+	if msg.err != nil || msg.buffer == nil {
+		// the title was already switched to the new track: drop the loading
+		// mark so it does not stay "downloading" forever
+		m.tracker.Stop()
+		m.tracker.ShowError("track download")
+		return
+	}
+
+	track := msg.track
+
+	if m.currentPlaylistIndex >= 0 && m.client != nil {
 		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
 		if currentPlaylist.Rotor {
 			ev := api.NewTrackFeedbackEvent(api.EV_TRACK_STARTED, track, 0)
@@ -358,7 +427,7 @@ func (m *Model) playTrack(track *api.Track) {
 
 	m.tracker.SetNextTrack(m.nextTrackTitle())
 	m.tracker.SetRepeatMode(m.repeatMode)
-	if !m.tracker.StartTrack(track, trackBuffer, lyrics) {
+	if !m.tracker.StartTrack(track, msg.buffer, msg.lyrics) {
 		// the track is broken: the next one is tried instead
 		m.failedTracks++
 		if m.failedTracks > _TRACK_FAILURES_LIMIT {
@@ -376,7 +445,7 @@ func (m *Model) playTrack(track *api.Track) {
 	m.mediaHandler.OnPlayback()
 
 	if m.client != nil {
-		go m.client.PlayTrack(track, trackFromCache)
+		go m.client.PlayTrack(track, msg.fromCache)
 	}
 }
 
@@ -405,6 +474,12 @@ func (m *Model) playSelectedPlaylist(trackIndex int) {
 	}
 
 	trackToPlay := &selectedPlaylist.Tracks[selectedPlaylist.SelectedTrack]
+
+	// clicking the track that is still downloading must not start a second
+	// download: there is nothing to pause or resume yet
+	if m.loadingTrackId == trackToPlay.Id && m.tracker.IsStoped() {
+		return
+	}
 
 	if m.currentPlaylistIndex >= 0 {
 		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]

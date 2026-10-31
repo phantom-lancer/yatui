@@ -32,13 +32,28 @@ func (m *Model) cacheCurrentTrack() tea.Cmd {
 		m.tracker.ShowError("cache write")
 		return nil
 	}
-
-	defer cacheFile.Close()
+	committed := false
+	defer func() {
+		if !committed {
+			cache.Discard(cacheFile)
+		}
+	}()
 
 	tag := id3v2.NewEmptyTag()
 	tag.Reset(metadataFile, id3v2.Options{Parse: true})
 	tag.WriteTo(cacheFile)
-	m.tracker.TrackBuffer().WriteTo(cacheFile)
+	if _, err := m.tracker.TrackBuffer().WriteTo(cacheFile); err != nil {
+		log.Print(log.LVL_ERROR, "failed to save cached track: %s", err)
+		m.tracker.ShowError("cache write")
+		return nil
+	}
+	// the file becomes a cached track only when it is complete
+	if err := cache.Commit(cacheFile, currentTrack.Id); err != nil {
+		log.Print(log.LVL_ERROR, "failed to commit cache file: %s", err)
+		m.tracker.ShowError("cache write")
+		return nil
+	}
+	committed = true
 
 	m.cachedTracksMap[currentTrack.Id] = true
 	cachePlaylist, index := m.playlists.GetFirst(playlist.LOCAL)

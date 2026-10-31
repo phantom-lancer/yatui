@@ -66,6 +66,9 @@ type Model struct {
 	showLyrics bool
 	showError  bool
 	errorText  string
+	// loading is set while the next track is being downloaded: the title is
+	// already shown, but there is nothing to play yet
+	loading bool
 
 	paused      bool
 	playtime    time.Duration
@@ -416,7 +419,11 @@ func (m *Model) view() (string, *Regions) {
 		trackTitle = titleStyle.Render(m.track.Title)
 	}
 
-	trackVersion := style.TrackVersionStyle.Render(" " + m.track.Version)
+	versionText := " " + m.track.Version
+	if m.loading {
+		versionText = " загрузка…"
+	}
+	trackVersion := style.TrackVersionStyle.Render(versionText)
 	trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackVersion)
 
 	durTotal := time.Millisecond * time.Duration(m.track.DurationMs)
@@ -637,7 +644,7 @@ func (m *Model) SetVolume(v float64) {
 	m.volume = v
 	m.volumeIncremet = m.volume / _VOLUME_FADE_STEPS
 	config.Current.Volume = m.volume
-	config.Save()
+	config.SaveLater()
 }
 
 // SetEQ turns the equalizer on or off and sets the gains of its bands.
@@ -675,7 +682,7 @@ func (m *Model) LastGain() float64 {
 func (m *Model) SetLirycs(show bool) {
 	m.showLyrics = show
 	config.Current.ShowLyrics = m.showLyrics
-	config.Save()
+	config.SaveLater()
 }
 
 // SetRewind changes the rewind step for the skip keys.
@@ -685,7 +692,7 @@ func (m *Model) SetRewind(amount time.Duration) {
 	}
 	m.rewindAmount = amount
 	config.Current.RewindDuration = amount.Seconds()
-	config.Save()
+	config.SaveLater()
 }
 
 // SetRepeatMode sets the repeat mode for the queue.
@@ -707,9 +714,21 @@ func (m *Model) Volume() float64 {
 	return m.volume
 }
 
+// LoadTrack shows the track that is being downloaded. The player is stopped,
+// so the title is the only sign that the new track is on its way.
+func (m *Model) LoadTrack(track *api.Track) {
+	m.showError = false
+	m.track = *track
+	m.lyrics = nil
+	m.progressFrac = 0
+	m.playtime = 0
+	m.loading = true
+}
+
 // StartTrack begins the playback of a track. It reports whether the track
 // could be played: a broken download leaves the player alone.
 func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyrics []api.LyricPair) bool {
+	m.loading = false
 	m.showError = false
 	m.volume = config.Current.Volume
 	m.volumeIncremet = m.volume / _VOLUME_FADE_STEPS
@@ -741,6 +760,7 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 }
 
 func (m *Model) Stop() {
+	m.loading = false
 	if m.player == nil {
 		return
 	}
@@ -816,9 +836,10 @@ func (m *Model) Rewind(amount time.Duration) tea.Cmd {
 	currentPos := int64(float64(m.trackWrapper.Length()) * m.trackWrapper.Progress())
 	byteOffset := int64(math.Round((float64(m.trackWrapper.Length()) / float64(m.track.DurationMs)) * amountMs))
 
-	// align position by 4 bytes
+	// align position by 4 bytes (one stereo frame, 16 bit samples): the
+	// alignment must round down, otherwise the channels are shifted
 	currentPos += byteOffset
-	currentPos += currentPos % 4
+	currentPos -= currentPos % 4
 
 	if currentPos <= 0 {
 		m.player.Seek(0, io.SeekStart)
@@ -841,8 +862,11 @@ func (m *Model) SetPos(pos time.Duration) {
 	posMs := pos.Milliseconds()
 	byteOffset := int64(math.Round((float64(m.trackWrapper.Length()) / float64(m.track.DurationMs)) * float64(posMs)))
 
-	// align position by 4 bytes
-	byteOffset += byteOffset % 4
+	// align position by 4 bytes (one stereo frame), rounding down
+	byteOffset -= byteOffset % 4
+	if byteOffset < 0 {
+		byteOffset = 0
+	}
 	m.player.Seek(byteOffset, io.SeekStart)
 	m.progressFrac = clamp01(float64(posMs) / float64(m.track.DurationMs))
 }
@@ -890,6 +914,11 @@ func (m *Model) volumeFadeTick() {
 
 	if m.volumeIncremet == 0 {
 		m.player.SetVolume(0)
+		// at zero volume the fade has nothing to do, but the pause still
+		// has to reach the player: otherwise the track keeps running
+		if m.paused {
+			m.player.Pause()
+		}
 		return
 	}
 

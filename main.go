@@ -29,6 +29,8 @@ func main() {
 	if err != nil {
 		log.Print(log.LVL_WARNIGN, "config load error: %s", err.Error())
 	}
+	// the delayed writes must reach the disk before the app exits
+	defer config.Flush()
 
 	certPool, err := x509.SystemCertPool()
 	if err != nil {

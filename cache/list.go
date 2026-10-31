@@ -59,7 +59,8 @@ func ListTracks() ([]api.Track, error) {
 					continue
 				}
 				_, str, _ := strings.Cut(string(artistId.Body), string([]byte{0}))
-				artists[i].Id, _ = strconv.ParseUint(str, 10, 64)
+				parsed, _ := strconv.ParseUint(str, 10, 64)
+				artists[i].Id = api.ID(parsed)
 			}
 		}
 
@@ -68,6 +69,7 @@ func ListTracks() ([]api.Track, error) {
 
 		durationFrame, ok := tag.GetLastFrame(TAG_DURATION).(id3v2.TextFrame)
 		if !ok {
+			tag.Close()
 			continue
 		}
 

@@ -55,6 +55,9 @@ func Start() {
 }
 
 func Stop() {
+	if file == nil {
+		return
+	}
 	file.Close()
 	file = nil
 }

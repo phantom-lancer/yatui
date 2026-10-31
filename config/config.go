@@ -1,16 +1,28 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/phantom-lancer/yatui/equalizer"
 )
 
+const _SAVE_DELAY = 2 * time.Second
+
 var Current Config
+
+var (
+	// the delayed write lives in its own goroutine, so the state is guarded
+	saveMu    sync.Mutex
+	saveTimer *time.Timer
+	saveData  []byte
+)
 
 func InitialLoad() error {
 	var err error
@@ -164,24 +176,70 @@ func fillDefault(target, values any) {
 }
 
 func save(conf Config) error {
+	data, err := encode(conf)
+	if err != nil {
+		return err
+	}
+	return writeFile(data)
+}
+
+// encode turns the config into the YAML bytes. It runs on the calling
+// goroutine, so a delayed write never touches a config that is being changed.
+func encode(conf Config) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(4)
+	if err := enc.Encode(conf); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// writeFile writes the config to a temporary file next to the real one and
+// renames it. A crash in the middle leaves the old config intact instead of a
+// truncated file with no token.
+func writeFile(data []byte) error {
 	configDir, err := getDir()
 	if err != nil {
 		return err
 	}
 
-	file, err := os.OpenFile(filepath.Join(configDir, "config.yaml"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	tmp, err := os.CreateTemp(configDir, "config-*.yaml")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
 
-	enc := yaml.NewEncoder(file)
-	enc.SetIndent(4)
-	err = enc.Encode(conf)
-	if err != nil {
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	// the data must be on the disk before the rename, otherwise a power loss
+	// can still leave an empty file in place of the config
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, filepath.Join(configDir, "config.yaml")); err != nil {
 		return err
 	}
 
+	tmpName = ""
 	return nil
 }
 
@@ -199,11 +257,75 @@ func Path() string {
 	return filepath.Join(configDir, "config.yaml")
 }
 
+// Save writes the config right away. It is used where the answer matters
+// (the login page) and clears any delayed write that is still pending.
 func Save() error {
+	discardPending()
 	return save(Current)
 }
 
+// SaveLater writes the config after a short pause. The volume and the lyrics
+// toggle change the config on every key press, and rewriting the file for
+// each press is slow and risky; the newest state simply replaces the pending
+// one. The app calls Flush on exit.
+func SaveLater() {
+	data, err := encode(Current)
+	if err != nil {
+		return
+	}
+
+	saveMu.Lock()
+	defer saveMu.Unlock()
+
+	saveData = data
+	if saveTimer == nil {
+		saveTimer = time.AfterFunc(_SAVE_DELAY, flushPending)
+	} else {
+		saveTimer.Reset(_SAVE_DELAY)
+	}
+}
+
+// Flush writes the pending config right now. It is called on exit, so a
+// volume change made a second before closing is not lost.
+func Flush() {
+	saveMu.Lock()
+	if saveTimer != nil {
+		saveTimer.Stop()
+		saveTimer = nil
+	}
+	data := saveData
+	saveData = nil
+	saveMu.Unlock()
+
+	if data != nil {
+		_ = writeFile(data)
+	}
+}
+
+func discardPending() {
+	saveMu.Lock()
+	if saveTimer != nil {
+		saveTimer.Stop()
+		saveTimer = nil
+	}
+	saveData = nil
+	saveMu.Unlock()
+}
+
+func flushPending() {
+	saveMu.Lock()
+	data := saveData
+	saveData = nil
+	saveTimer = nil
+	saveMu.Unlock()
+
+	if data != nil {
+		_ = writeFile(data)
+	}
+}
+
 func Reset() error {
+	discardPending()
 	var err error
 	Current, err = load()
 	return err

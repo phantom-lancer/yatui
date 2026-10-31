@@ -254,7 +254,7 @@ func buildDiscordActivity(track *api.Track, position time.Duration, playing bool
 	}
 	artistPath := ""
 	if len(track.Artists) > 0 && track.Artists[0].Id != 0 {
-		artistPath = "artist/" + strconv.FormatUint(track.Artists[0].Id, 10)
+		artistPath = "artist/" + strconv.FormatUint(uint64(track.Artists[0].Id), 10)
 	}
 
 	largeText := ""

@@ -49,10 +49,22 @@ var mTLSConfig = &tls.Config{
 	// MaxVersion: tls.VersionTLS12,
 }
 
-var httpClient = http.Client{Transport: &http.Transport{
-	TLSClientConfig:       mTLSConfig,
-	ResponseHeaderTimeout: _RESPONSE_TIMEOUT,
-}, Timeout: 15 * time.Second}
+const _HTTP_TIMEOUT = 15 * time.Second
+
+// Two clients share one transport: the API answers have a hard timeout,
+// while an audio stream lives as long as the track does. Its reads are
+// bounded by TimeLimitedReader instead.
+var (
+	httpClient = http.Client{Transport: &http.Transport{
+		TLSClientConfig:       mTLSConfig,
+		ResponseHeaderTimeout: _RESPONSE_TIMEOUT,
+	}, Timeout: _HTTP_TIMEOUT}
+
+	streamClient = http.Client{Transport: &http.Transport{
+		TLSClientConfig:       mTLSConfig,
+		ResponseHeaderTimeout: _RESPONSE_TIMEOUT,
+	}}
+)
 
 func nowTimestamp() string {
 	return time.Now().Format(_TIMESTAMP_FORMAT)
@@ -75,8 +87,13 @@ func proccessRequest[RetT any](req *http.Request) (result RetT, invInfo InvocInf
 			Result         RetT      `json:"result"`
 		}
 
+		// an empty body is fine (some endpoints answer with nothing), but a
+		// broken one is not: it used to be read as an empty result
 		dec := json.NewDecoder(resp.Body)
-		dec.Decode(&respBody)
+		if derr := dec.Decode(&respBody); derr != nil && !errors.Is(derr, io.EOF) {
+			err = fmt.Errorf("unable to decode the response: %w", derr)
+			return
+		}
 
 		invInfo = respBody.InvocationInfo
 		result = respBody.Result
@@ -87,14 +104,27 @@ func proccessRequest[RetT any](req *http.Request) (result RetT, invInfo InvocInf
 		}
 
 		dec := json.NewDecoder(resp.Body)
-		dec.Decode(&respBody)
+		if derr := dec.Decode(&respBody); derr != nil && !errors.Is(derr, io.EOF) {
+			err = fmt.Errorf("bad request: %s", resp.Status)
+			return
+		}
 
 		invInfo = respBody.InvocationInfo
 		err = respBody.Error
+		if respBody.Error.Name == "" {
+			err = fmt.Errorf("bad request: %s", resp.Status)
+		}
 	case http.StatusUnauthorized:
 		var respBody UnauthorizedError
 		dec := json.NewDecoder(resp.Body)
-		dec.Decode(&respBody)
+		if derr := dec.Decode(&respBody); derr != nil && !errors.Is(derr, io.EOF) {
+			err = ErrTokenRejected
+			return
+		}
+		if respBody.Name == "" {
+			err = ErrTokenRejected
+			return
+		}
 		err = respBody
 		invInfo.ReqId = respBody.RequestId
 	case http.StatusForbidden:
@@ -210,7 +240,7 @@ func downloadRequest(token, reqUrl, mimeType string) (body io.ReadCloser, conten
 	req.Header.Set("accept", mimeType)
 	req.Header.Set("Authorization", "OAuth "+token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := streamClient.Do(req)
 	if err != nil {
 		cancel()
 		return
@@ -253,7 +283,10 @@ func SetupClient(proxyUrl string, certPool *x509.CertPool) {
 	}
 
 	transport.TLSClientConfig.RootCAs = certPool
-	httpClient = http.Client{Transport: transport}
+	// the same transport for both clients: the audio stream keeps its
+	// connections warm, the API calls stay on the keep-alive pool
+	httpClient = http.Client{Transport: transport, Timeout: _HTTP_TIMEOUT}
+	streamClient = http.Client{Transport: transport}
 }
 
 // Deprecated: doesn't work in most cases
@@ -315,12 +348,15 @@ func DownloadTrackCover(dst io.Writer, track *Track, size int) (string, error) {
 		return "", errors.New("cover not presented")
 	}
 
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return "", err
 	}
 
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("cover download: %s", resp.Status)
+	}
 	_, err = io.Copy(dst, resp.Body)
 	return resp.Header.Get("Content-Type"), err
 }
@@ -416,9 +452,12 @@ func (client *YaMusicClient) PlaylistTracks(kind uint64, userId uint64, mixed bo
 		return
 	}
 
-	tracks = make([]Track, 0, playlists[0].TrackCount)
-	for i := 0; i < playlists[0].TrackCount; i++ {
-		tracks = append(tracks, playlists[0].Tracks[i].Track)
+	// the server may report a track count that does not match the list it
+	// actually sent, so the list itself is walked
+	pl := playlists[0]
+	tracks = make([]Track, 0, len(pl.Tracks))
+	for i := range pl.Tracks {
+		tracks = append(tracks, pl.Tracks[i].Track)
 	}
 
 	return
@@ -499,6 +538,10 @@ func (client *YaMusicClient) RotorSessionFeedback(sessionId string, feedback *Ro
 func (client *YaMusicClient) RotorSessionTracks(sessionId string, feedbacks []*RotorFeedback, trackQueue []Track) (tracks StationTracks, err error) {
 	queue := make([]string, len(trackQueue))
 	for i := range trackQueue {
+		if len(trackQueue[i].Albums) == 0 {
+			queue[i] = trackQueue[i].Id
+			continue
+		}
 		queue[i] = fmt.Sprintf("%s:%d", trackQueue[i].Id, trackQueue[i].Albums[0].Id)
 	}
 	body := map[string]interface{}{
@@ -514,14 +557,15 @@ func (client *YaMusicClient) RotorSessionTracks(sessionId string, feedbacks []*R
 }
 
 func (client *YaMusicClient) PlayTrack(track *Track, fromCache bool) (err error) {
+	lengthSeconds := track.DurationMs / 1000
 	queryParams := url.Values{
 		"uid":                  {fmt.Sprint(client.userid)},
 		"from":                 {client.name},
 		"play-id":              {client.sessionid},
 		"track-id":             {track.Id},
 		"from-cache":           {fmt.Sprint(fromCache)},
-		"track-length-seconds": {fmt.Sprint(track.DurationMs + 1000)},
-		"total-played-seconds": {fmt.Sprint(track.DurationMs + 1000)},
+		"track-length-seconds": {fmt.Sprint(lengthSeconds)},
+		"total-played-seconds": {fmt.Sprint(lengthSeconds)},
 		"timestamp":            {nowTimestamp()},
 	}
 	_, _, err = postRequest[interface{}](client.token, "/play-audio", queryParams)
@@ -678,9 +722,13 @@ func (client *YaMusicClient) TrackLyricsRequest(trackId string) (LRCLyrics []Lyr
 	if err != nil {
 		return []LyricPair{}, err
 	}
-	LRCLyricsResponse, err := http.Get(lyrics.DownloadUrl)
+	LRCLyricsResponse, err := httpClient.Get(lyrics.DownloadUrl)
 	if err != nil {
 		return []LyricPair{}, err
+	}
+	defer LRCLyricsResponse.Body.Close()
+	if LRCLyricsResponse.StatusCode != http.StatusOK {
+		return []LyricPair{}, fmt.Errorf("lyrics download: %s", LRCLyricsResponse.Status)
 	}
 	data, err := io.ReadAll(LRCLyricsResponse.Body)
 	if err != nil {

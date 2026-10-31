@@ -107,6 +107,13 @@ type Model struct {
 	// when there are too many of them
 	failedTracks int
 
+	// playGeneration grows with every track start: the download that is
+	// still on its way from a previous track is dropped when the number no
+	// longer matches, so a slow download cannot replace a newer track.
+	playGeneration int64
+	// loadingTrackId is the track that is being downloaded right now, if any.
+	loadingTrackId string
+
 	manualQueue   []api.Track
 	queue         *queueModel
 	isQueueActive bool
@@ -395,6 +402,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCacheList(msg)
 		return m, nil
 
+	case trackReadyMsg:
+		m.applyLoadedTrack(msg)
+		return m, nil
+
 	case waveStationsMsg:
 		if m.wave != nil {
 			m.wave.setStations(msg.stations)
@@ -622,6 +633,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.showPlayStateToast()
 			m.discordRefresh(false)
 		case tracker.STOP:
+			// a stop drops the download that may still be on its way
+			m.playGeneration++
+			m.loadingTrackId = ""
 			m.scrobbleCancel()
 			m.discordClear()
 			m.mediaHandler.OnEnded()

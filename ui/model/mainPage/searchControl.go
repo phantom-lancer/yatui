@@ -168,7 +168,7 @@ func (m *Model) loadSearchArtist(wg *sync.WaitGroup, artist *api.Artist, withPop
 	}
 
 	if withPopular {
-		artistTracks, err := m.client.ArtistPopularTracks(artist.Id)
+		artistTracks, err := m.client.ArtistPopularTracks(uint64(artist.Id))
 		if err != nil {
 			sval, _ := m.searchDialog.SuggestionValue()
 			log.Print(log.LVL_ERROR, "failed to obtain search [%s] artist [%s] tracks: %s", sval, artist.Name, err)
@@ -192,7 +192,7 @@ func (m *Model) loadSearchArtist(wg *sync.WaitGroup, artist *api.Artist, withPop
 		})
 	}
 
-	artistAlbums, err := m.client.ArtistAlbums(artist.Id)
+	artistAlbums, err := m.client.ArtistAlbums(uint64(artist.Id))
 	if err != nil {
 		sval, _ := m.searchDialog.SuggestionValue()
 		log.Print(log.LVL_ERROR, "failed to obtain search [%s] artist [%s] albums: %s", sval, artist.Name, err)

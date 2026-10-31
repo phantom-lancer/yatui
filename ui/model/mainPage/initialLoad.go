@@ -366,9 +366,9 @@ func (m *Model) loadPinnedAlbums(wg *sync.WaitGroup, block *menuBlock) {
 
 	albums := make([]api.Album, 0, len(pinnedAlbums))
 	for _, albumInfo := range pinnedAlbums {
-		album, err := m.client.Album(albumInfo.Data.Id, true)
+		album, err := m.client.Album(uint64(albumInfo.Data.Id), true)
 		if err != nil {
-			log.Print(log.LVL_ERROR, "failed to obtain pinned album [%d] info: %s", albumInfo.Data.Id, err)
+			log.Print(log.LVL_ERROR, "failed to obtain pinned album [%d] info: %s", uint64(albumInfo.Data.Id), err)
 			continue
 		}
 		albums = append(albums, album)

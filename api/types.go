@@ -1,8 +1,30 @@
 package api
 
 import (
+	"strconv"
+	"strings"
 	"time"
 )
+
+// ID is an identifier of the Music API. Most answers carry it as a number,
+// but a few old ones carry it as a string, so both forms are accepted.
+type ID uint64
+
+func (id *ID) UnmarshalJSON(data []byte) error {
+	text := strings.Trim(string(data), `"`)
+	if text == "" || text == "null" {
+		*id = 0
+		return nil
+	}
+
+	value, err := strconv.ParseUint(text, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	*id = ID(value)
+	return nil
+}
 
 type fullDownloadInfo struct {
 	Host string `json:"host"`
@@ -41,7 +63,9 @@ func (e UnauthorizedError) Error() string {
 }
 
 type InvocInfo struct {
-	ExecDurationMillis int    `json:"exec-duration-millis"`
+	// the field is informational and the API sends it either as a number or
+	// as a string
+	ExecDurationMillis any    `json:"exec-duration-millis"`
 	Hostname           string `json:"hostname"`
 	ReqId              string `json:"req-id"`
 }
@@ -95,12 +119,12 @@ type Tag struct {
 }
 
 type Label struct {
-	Id   string `json:"id"`
+	Id   ID     `json:"id"`
 	Name string `json:"name"`
 }
 
 type Artist struct {
-	Id       uint64   `json:"id"`
+	Id       ID       `json:"id"`
 	Name     string   `json:"name"`
 	Various  bool     `json:"various"`
 	Composer bool     `json:"composer"`
@@ -201,12 +225,10 @@ type Playlist struct {
 	TextColor       string `json:"textColor"`
 
 	TrackCount int `json:"trackCount"`
-	Tracks     []struct {
-		Id        uint64 `json:"id"`
-		PlayCount int    `json:"playCount"`
-		Recent    bool   `json:"recent"`
-		Timestamp string `json:"timestamp"`
-		Track     Track  `json:"track"`
+	// the id of a short track is a number in some answers and a UUID in
+	// others; only the full track below is used, so the id is not decoded
+	Tracks []struct {
+		Track Track `json:"track"`
 	} `json:"tracks"`
 }
 
@@ -371,7 +393,7 @@ type LikedArtistInfo struct {
 }
 
 type PinData struct {
-	Id    uint64 `json:"id"`
+	Id    ID     `json:"id"`
 	Title string `json:"title"`
 }
 

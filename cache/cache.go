@@ -54,18 +54,51 @@ func Read(trackId string) (*os.File, int64, error) {
 	return file, stat.Size(), nil
 }
 
+// Write creates a temporary file for the track. It is not visible in the
+// cache until Commit renames it, so an interrupted write never leaves a
+// truncated track that looks playable.
 func Write(trackId string) (*os.File, error) {
 	dir, err := getCacheDir()
 	if err != nil {
 		return nil, err
 	}
 
-	file, err := os.OpenFile(filepath.Join(dir, trackId+".mp3"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	file, err := os.CreateTemp(dir, trackId+".*.part")
 	if err != nil {
 		return nil, err
 	}
 
 	return file, nil
+}
+
+// Commit publishes a file created by Write. The data is flushed to the disk
+// before the rename, so a crash cannot leave a half-written mp3 under the
+// real name.
+func Commit(file *os.File, trackId string) error {
+	dir, err := getCacheDir()
+	if err != nil {
+		return err
+	}
+
+	tmpName := file.Name()
+	if err := file.Sync(); err != nil {
+		file.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+
+	return os.Rename(tmpName, filepath.Join(dir, trackId+".mp3"))
+}
+
+// Discard removes a file created by Write and not committed.
+func Discard(file *os.File) {
+	name := file.Name()
+	file.Close()
+	os.Remove(name)
 }
 
 func Remove(trackId string) error {
