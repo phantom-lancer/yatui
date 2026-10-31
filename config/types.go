@@ -221,6 +221,10 @@ type Config struct {
 	DevColors *Colors `yaml:"dev-colors,omitempty"`
 	// RgbSpeed is how fast the rgb theme cycles its colors (1..10).
 	RgbSpeed int `yaml:"rgb-speed"`
+	// RgbFrameMs is how often the rgb theme repaints the window, in
+	// milliseconds: a smaller frame is smoother and costs more CPU. Zero
+	// means the default.
+	RgbFrameMs int `yaml:"rgb-frame-ms"`
 }
 
 var defaultConfig = Config{
@@ -233,6 +237,7 @@ var defaultConfig = Config{
 	CacheDir:       "",
 	SuppressErrors: false,
 	RgbSpeed:       5,
+	RgbFrameMs:     200,
 	Search: &Search{
 		Artists:   true,
 		Popular:   false,

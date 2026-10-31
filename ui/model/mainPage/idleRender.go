@@ -46,6 +46,7 @@ func (m *Model) idleScreen() bool {
 		!m.isCacheActive &&
 		m.eq == nil &&
 		m.discordSettings == nil &&
+		m.rgbSettings == nil &&
 		m.wave == nil &&
 		m.contextMenu == nil
 }

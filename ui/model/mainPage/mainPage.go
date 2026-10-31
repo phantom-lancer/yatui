@@ -102,6 +102,7 @@ type Model struct {
 	eq *eqModel
 	// the Discord RPC panel
 	discordSettings *discordSettingsModel
+	rgbSettings     *rgbSettingsModel
 
 	// the window with the list of the stations
 	isStationsActive bool
@@ -290,6 +291,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	// the Discord panel captures the keys while it is open
 	if cmd, handled := m.discordSettingsControl(message); handled {
+		return m, cmd
+	}
+
+	// the RGB panel captures the keys while it is open
+	if cmd, handled := m.rgbSettingsControl(message); handled {
 		return m, cmd
 	}
 
@@ -743,6 +749,10 @@ func (m *Model) viewBody() string {
 
 	if m.discordSettings != nil {
 		return m.placeDiscordSettings()
+	}
+
+	if m.rgbSettings != nil {
+		return m.placeRgbSettings()
 	}
 
 	if m.isSettingsActive && m.settings != nil {

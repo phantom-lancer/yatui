@@ -528,40 +528,10 @@ func (m *Model) buildSettings() []settingItem {
 		},
 	}
 
-	// the rgb-only rows are listed while the animated theme runs: the speed
-	// slider and the dev escape hatch that stops the animation and puts every
-	// color back exactly as the config file has it
-	if config.Current.Style != nil && config.Current.Style.Theme == "rgb" {
-		items = append(items, settingItem{
-			label: "Скорость RGB",
-			kind:  settingNumber,
-			value: func() string {
-				switch speed := rgbSpeed(); {
-				case speed <= 2:
-					return fmt.Sprintf("медленно (%d)", speed)
-				case speed <= 4:
-					return fmt.Sprintf("спокойно (%d)", speed)
-				case speed <= 6:
-					return fmt.Sprintf("обычно (%d)", speed)
-				case speed <= 8:
-					return fmt.Sprintf("быстро (%d)", speed)
-				default:
-					return fmt.Sprintf("психоделика (%d)", speed)
-				}
-			},
-			apply: func(dir int) tea.Cmd {
-				return m.applyRgbSpeed(rgbSpeed() + dir)
-			},
-		})
-		items = append(items, settingItem{
-			label: "RGB (для разрабов)",
-			kind:  settingChoice,
-			value: func() string { return "выключить и вернуть как было" },
-			apply: func(dir int) tea.Cmd {
-				m.themeReset()
-				return tea.ClearScreen
-			},
-		})
+	// the whole animated theme is configured in its own panel: one row here
+	// instead of its knobs mixed into the general list
+	if rgbActive() {
+		items = append(items, m.rgbSettingItem())
 	}
 
 	return items

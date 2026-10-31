@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"math"
 	"strconv"
 	"time"
 
@@ -15,11 +16,15 @@ import (
 // tick, no 60 fps loop, so the CPU cost stays near zero.
 
 const (
-	// rgbTickInterval is how often the hue advances. Every tick repaints the
-	// whole window, so the interval is the main cost of the animated theme:
-	// two and a half frames a second still look smooth for a slow color drift
-	// and cost half of what five frames a second did.
-	rgbTickInterval = 400 * time.Millisecond
+	// rgbDefaultFrameMs is the frame of the animation when the config says
+	// nothing: five repaints a second.
+	rgbDefaultFrameMs = 200
+	// rgbMinFrameMs and rgbMaxFrameMs limit the smoothness setting. Every
+	// frame repaints the whole window, so the frame is the main cost of the
+	// animated theme: the fastest one is twelve times heavier than the
+	// cheapest.
+	rgbMinFrameMs = 40
+	rgbMaxFrameMs = 500
 	// rgbDefaultSpeed is the middle of the speed slider.
 	rgbDefaultSpeed = 5
 	// rgbMaxSpeed is the fastest step of the slider.
@@ -28,6 +33,25 @@ const (
 
 // rgbTickMsg carries the current hue around.
 type rgbTickMsg float64
+
+// rgbFrameMs is the configured frame of the animation, in milliseconds.
+func rgbFrameMs() int {
+	ms := config.Current.RgbFrameMs
+	switch {
+	case ms <= 0:
+		return rgbDefaultFrameMs
+	case ms < rgbMinFrameMs:
+		return rgbMinFrameMs
+	case ms > rgbMaxFrameMs:
+		return rgbMaxFrameMs
+	}
+	return ms
+}
+
+// rgbFrameInterval is the frame of the animation as a duration.
+func rgbFrameInterval() time.Duration {
+	return time.Duration(rgbFrameMs()) * time.Millisecond
+}
 
 // rgbActive reports whether the animated theme is on.
 func rgbActive() bool {
@@ -60,7 +84,7 @@ func (m *Model) rgbStart() tea.Cmd {
 }
 
 func rgbTick() tea.Cmd {
-	return tea.Tick(rgbTickInterval, func(time.Time) tea.Msg {
+	return tea.Tick(rgbFrameInterval(), func(time.Time) tea.Msg {
 		return rgbTickMsg(rgbHue)
 	})
 }
@@ -69,10 +93,10 @@ var rgbHue float64
 
 // rgbAdvance moves the hue by one step. The step grows with the speed slider,
 // so "fast" really is faster: at the default 5 the accent makes a full circle
-// in about 18 seconds. The step is as large as the tick interval demands, so a
-// slower repaint does not slow the animation down.
+// in about 18 seconds. The step follows the frame, so a smoother or a cheaper
+// repaint does not change the speed of the animation.
 func rgbAdvance() {
-	rgbHue += float64(rgbSpeed()) * 1.6
+	rgbHue += float64(rgbSpeed()) * 4 * rgbFrameInterval().Seconds()
 	for rgbHue >= 360 {
 		rgbHue -= 360
 	}
@@ -108,6 +132,45 @@ func (m *Model) handleRgbTick() tea.Cmd {
 	m.tracklist.RefreshStyle()
 	m.playlists.RefreshStyle()
 	return rgbTick()
+}
+
+// applyRgbFrame saves a new smoothness of the animation. The next tick is
+// scheduled with the new frame, so the change is felt at once.
+func (m *Model) applyRgbFrame(ms int) tea.Cmd {
+	if ms < rgbMinFrameMs {
+		ms = rgbMinFrameMs
+	} else if ms > rgbMaxFrameMs {
+		ms = rgbMaxFrameMs
+	}
+	config.Current.RgbFrameMs = ms
+	m.saveConfig()
+	m.showToast("Плавность RGB: " + rgbFrameLabel(ms))
+	return tea.ClearScreen
+}
+
+// rgbFrameLabel describes a frame, in milliseconds, the way the user sees it:
+// the name of the smoothness and the number of frames the screen gets.
+func rgbFrameLabel(ms int) string {
+	fps := 1000 / float64(ms)
+
+	name := "безумно"
+	switch {
+	case fps < 3:
+		name = "экономно"
+	case fps < 4.5:
+		name = "спокойно"
+	case fps < 6:
+		name = "обычно"
+	case fps < 9:
+		name = "плавно"
+	case fps < 12:
+		name = "очень плавно"
+	case fps < 20:
+		name = "максимум"
+	}
+
+	rounded := math.Round(fps*10) / 10
+	return name + " · " + strconv.FormatFloat(rounded, 'f', -1, 64) + " к/с"
 }
 
 // applyRgbSpeed saves a new speed, restarts the animation with it and shows
