@@ -35,9 +35,12 @@ type readWrapper struct {
 	lastUpdateTime time.Time
 	normalization  normalization
 	measurePending bool
-	duckLogged     bool
-	trackID        string
-	trackTitle     string
+	// meterSkip is set when the loudness of the track is already known or not
+	// needed: the whole track must not be measured again while it plays.
+	meterSkip  bool
+	duckLogged bool
+	trackID    string
+	trackTitle string
 	// playMeter measures the whole track while it plays: the result is exact
 	// and is remembered for the next plays.
 	playMeter *loudnessMeter
@@ -80,6 +83,10 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 				w.trackTitle, entry.Loudness, w.normalization.gainDB())
 		}
 	}
+
+	// a known loudness needs no measurement: the whole track would otherwise
+	// be fed to the meter on every play for an answer that is already stored
+	w.meterSkip = !w.measurePending
 
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
 
@@ -263,10 +270,12 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 	if n > 0 {
 		// the loudness of the whole track is measured on the fly: the exact
 		// value is remembered for the next plays
-		if w.playMeter == nil {
-			w.playMeter = newLoudnessMeter(w.decoder.SampleRate())
+		if !w.meterSkip {
+			if w.playMeter == nil {
+				w.playMeter = newLoudnessMeter(w.decoder.SampleRate())
+			}
+			w.playMeter.add(dest[:n])
 		}
-		w.playMeter.add(dest[:n])
 
 		// the equalizer changes the tone of the track
 		w.eq.Apply(dest[:n])

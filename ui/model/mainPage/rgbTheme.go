@@ -15,8 +15,11 @@ import (
 // tick, no 60 fps loop, so the CPU cost stays near zero.
 
 const (
-	// rgbTickInterval is how often the hue advances.
-	rgbTickInterval = 200 * time.Millisecond
+	// rgbTickInterval is how often the hue advances. Every tick repaints the
+	// whole window, so the interval is the main cost of the animated theme:
+	// two and a half frames a second still look smooth for a slow color drift
+	// and cost half of what five frames a second did.
+	rgbTickInterval = 400 * time.Millisecond
 	// rgbDefaultSpeed is the middle of the speed slider.
 	rgbDefaultSpeed = 5
 	// rgbMaxSpeed is the fastest step of the slider.
@@ -66,9 +69,10 @@ var rgbHue float64
 
 // rgbAdvance moves the hue by one step. The step grows with the speed slider,
 // so "fast" really is faster: at the default 5 the accent makes a full circle
-// in about 18 seconds.
+// in about 18 seconds. The step is as large as the tick interval demands, so a
+// slower repaint does not slow the animation down.
 func rgbAdvance() {
-	rgbHue += float64(rgbSpeed()) * 0.8
+	rgbHue += float64(rgbSpeed()) * 1.6
 	for rgbHue >= 360 {
 		rgbHue -= 360
 	}

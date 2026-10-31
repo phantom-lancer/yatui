@@ -7,7 +7,14 @@ import (
 	"time"
 )
 
-const _BUFFERING_AMOUNT = 32 * 1024
+const (
+	_BUFFERING_AMOUNT = 32 * 1024
+	// _MAX_PREALLOC is the biggest track the buffer is sized for in advance.
+	// The size of a track is known from the response, so the buffer can be
+	// allocated once instead of growing by copies, which keeps the peak
+	// memory of a download close to the size of the track itself.
+	_MAX_PREALLOC = 32 << 20
+)
 
 var errOutOfSize = errors.New("position is out of data size")
 
@@ -60,9 +67,12 @@ func (h *BufferedStream) Close() error {
 
 	h.mux.Lock()
 	h.closed = true
+	released := len(h.readBuffer)
 	h.readBuffer = nil
 	h.cond.Broadcast()
 	h.mux.Unlock()
+
+	releaseMemory(released)
 
 	return err
 }
@@ -211,6 +221,14 @@ func (h *BufferedStream) isStopped() bool {
 // waiting for the network.
 func (h *BufferedStream) prefetch() {
 	buf := make([]byte, _BUFFERING_AMOUNT)
+
+	if h.totalSize > 0 && h.totalSize <= _MAX_PREALLOC {
+		h.mux.Lock()
+		if !h.closed {
+			h.readBuffer = make([]byte, 0, h.totalSize)
+		}
+		h.mux.Unlock()
+	}
 
 	for {
 		select {
