@@ -133,8 +133,9 @@ func (m *Model) nextTrack() {
 		track := m.manualQueue[0]
 		m.manualQueue = m.manualQueue[1:]
 		if track.Available {
-			// the track leaves the queue: the list is refreshed
-			m.refreshTrackList()
+			// the track leaves the queue: the list and the "next" line are
+			// refreshed
+			m.refreshQueue()
 			m.playTrack(&track)
 			return
 		}
@@ -143,6 +144,18 @@ func (m *Model) nextTrack() {
 	if len(m.playQueue) == 0 {
 		m.Send(tracker.STOP)
 		return
+	}
+
+	// the wave has to be asked for more tracks before the queue runs out:
+	// the current track may be the last one, e.g. when the user rearranged
+	// the list by hand, and then the wave used to stop instead of going on
+	rotated := false
+	if m.currentPlaylistIndex >= 0 && m.currentPlaylistIndex < len(m.playlists.Items()) {
+		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
+		if currentPlaylist.Rotor && m.playQueueTrackIndex >= len(m.playQueue)-1 {
+			m.rotateTracks(currentPlaylist)
+			rotated = true
+		}
 	}
 
 	m.playQueueTrackIndex++
@@ -165,7 +178,7 @@ func (m *Model) nextTrack() {
 			currentPlaylist.SelectedTrack = currentPlaylist.CurrentTrack
 		}
 
-		if currentPlaylist.CurrentTrack == len(m.playQueue)-1 {
+		if !rotated && currentPlaylist.CurrentTrack == len(m.playQueue)-1 {
 			m.rotateTracks(currentPlaylist)
 		}
 
@@ -352,6 +365,40 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 	})
 }
 
+// buildTrackTag fills a fresh ID3 tag with the metadata of the track: the name,
+// the album, the artists and, when it was downloaded, the cover.
+func buildTrackTag(track *api.Track, coverType string, coverBytes []byte) *id3v2.Tag {
+	tag := id3v2.NewEmptyTag()
+	tag.SetDefaultEncoding(id3v2.EncodingUTF8)
+	tag.SetTitle(track.Title)
+	if len(track.Albums) != 0 {
+		tag.SetAlbum(track.Albums[0].Title)
+		tag.SetGenre(track.Albums[0].Genre)
+		tag.SetYear(fmt.Sprint(track.Albums[0].Year))
+	}
+	artists := make([]string, 0, len(track.Artists))
+	for i := range track.Artists {
+		artists = append(artists, track.Artists[i].Name)
+		tag.AddFrame(cache.TAG_ARTIST_ID, id3v2.UserDefinedTextFrame{
+			Encoding:    id3v2.EncodingUTF8,
+			Description: fmt.Sprint(i),
+			Value:       fmt.Sprint(track.Artists[i].Id),
+		})
+	}
+	tag.SetArtist(strings.Join(artists, ","))
+	if len(coverBytes) > 0 {
+		tag.AddAttachedPicture(id3v2.PictureFrame{
+			MimeType:    coverType,
+			PictureType: id3v2.PTFrontCover,
+			Encoding:    id3v2.EncodingUTF16BE,
+			Picture:     coverBytes,
+		})
+	}
+	tag.AddTextFrame(cache.TAG_TRACK_ID, id3v2.EncodingUTF8, fmt.Sprint(track.Id))
+	tag.AddTextFrame(cache.TAG_DURATION, id3v2.EncodingUTF8, fmt.Sprint(track.DurationMs))
+	return tag
+}
+
 // writeTrackMetadata writes the tags and the head of the track to the file the
 // media integrations read. A failure is not fatal: the track plays without a
 // cover and without scrobbling metadata.
@@ -367,31 +414,7 @@ func (m *Model) writeTrackMetadata(track *api.Track, trackBuffer *stream.Buffere
 	if fromCache {
 		tag.Reset(trackBuffer, id3v2.Options{Parse: true})
 	} else {
-		tag.SetDefaultEncoding(id3v2.EncodingUTF8)
-		tag.SetTitle(track.Title)
-		if len(track.Albums) != 0 {
-			tag.SetAlbum(track.Albums[0].Title)
-			tag.SetGenre(track.Albums[0].Genre)
-			tag.SetYear(fmt.Sprint(track.Albums[0].Year))
-		}
-		artists := make([]string, 0, len(track.Artists))
-		for i := range track.Artists {
-			artists = append(artists, track.Artists[i].Name)
-			tag.AddFrame(cache.TAG_ARTIST_ID, id3v2.UserDefinedTextFrame{
-				Encoding:    id3v2.EncodingUTF8,
-				Description: fmt.Sprint(i),
-				Value:       fmt.Sprint(track.Artists[i].Id),
-			})
-		}
-		tag.SetArtist(strings.Join(artists, ","))
-		tag.AddAttachedPicture(id3v2.PictureFrame{
-			MimeType:    coverType,
-			PictureType: id3v2.PTFrontCover,
-			Encoding:    id3v2.EncodingUTF16BE,
-			Picture:     coverBytes,
-		})
-		tag.AddTextFrame(cache.TAG_TRACK_ID, id3v2.EncodingUTF8, fmt.Sprint(track.Id))
-		tag.AddTextFrame(cache.TAG_DURATION, id3v2.EncodingUTF8, fmt.Sprint(track.DurationMs))
+		tag = buildTrackTag(track, coverType, coverBytes)
 	}
 	tag.WriteTo(metadataFile)
 	io.CopyN(metadataFile, trackBuffer, 32*1024)

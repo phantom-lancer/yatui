@@ -454,23 +454,38 @@ func (m *Model) applyTracklistOrder() tea.Cmd {
 		tracks = append(tracks, *item.Track)
 	}
 
-	selected.Tracks = tracks
-	m.playlists.SetItem(m.playlists.Index(), selected)
-
-	// the queue follows the new order, the track that plays now keeps its
-	// place in it
-	if m.currentPlaylistIndex == m.playlists.Index() {
-		m.playQueue = tracks
+	// the track that plays now keeps its place in the queue even though its
+	// index changed
+	currentIndex := -1
+	playing := m.currentPlaylistIndex == m.playlists.Index()
+	if playing {
 		if current := m.tracker.CurrentTrack(); current != nil {
-			for i, track := range tracks {
-				if track.Id == current.Id {
-					m.playQueueTrackIndex = i
+			for i := range tracks {
+				if tracks[i].Id == current.Id {
+					currentIndex = i
 					break
 				}
 			}
 		}
 	}
 
+	selected.Tracks = tracks
+	if currentIndex >= 0 {
+		selected.CurrentTrack = currentIndex
+	}
+	m.playlists.SetItem(m.playlists.Index(), selected)
+
+	// the queue has to follow the new order: otherwise the next track is
+	// taken from the old one and the wave stops after the current track
+	if playing {
+		m.playQueue = tracks
+		if currentIndex >= 0 {
+			m.playQueueTrackIndex = currentIndex
+		}
+	}
+
+	// the order changed: the "next" line under the player must follow it
+	m.refreshNextTrack()
 	return nil
 }
 
@@ -663,6 +678,7 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 			m.addToQueue(track)
 			return nil
 		}},
+		{label: "Скачать в кэш", action: func(m *Model) tea.Cmd { return m.downloadTrack(track) }},
 		{label: "Start radio", action: func(m *Model) tea.Cmd { return m.playRadioByTrack(track) }},
 		{label: "Add to playlist", action: func(m *Model) tea.Cmd {
 			m.searchDialog.Title = "Add " + track.Title + " to"

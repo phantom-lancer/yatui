@@ -43,7 +43,7 @@ func (m *Model) addNext(track *api.Track) {
 		return
 	}
 	m.manualQueue = append([]api.Track{*track}, m.manualQueue...)
-	m.refreshTrackList()
+	m.refreshQueue()
 	m.showToast("Далее: " + track.Title)
 }
 
@@ -53,8 +53,24 @@ func (m *Model) addToQueue(track *api.Track) {
 		return
 	}
 	m.manualQueue = append(m.manualQueue, *track)
-	m.refreshTrackList()
+	m.refreshQueue()
 	m.showToast("В очередь: " + track.Title)
+}
+
+// refreshNextTrack updates the "next:" line of the player: it shows the track
+// that will be played after the current one, so any change of the queue order
+// has to refresh it.
+func (m *Model) refreshNextTrack() {
+	if m.tracker != nil {
+		m.tracker.SetNextTrack(m.nextTrackTitle())
+	}
+}
+
+// refreshQueue redraws everything that depends on the queue order: the track
+// list and the "next:" line of the player.
+func (m *Model) refreshQueue() {
+	m.refreshNextTrack()
+	m.refreshTrackList()
 }
 
 // refreshTrackList shows the tracks of the queue at the top of the list.
@@ -127,6 +143,7 @@ func (m *Model) playQueueEntry(entries []queueEntry, index int) {
 				break
 			}
 		}
+		m.refreshQueue()
 		track := entry.track
 		m.playTrack(&track)
 		return
@@ -228,6 +245,7 @@ func (m *Model) queueControl(message tea.Msg) (tea.Cmd, bool) {
 		m.manualQueue = nil
 		m.queue.index = 0
 		m.queue.offset = 0
+		m.refreshQueue()
 		m.showToast("Очередь очищена")
 	}
 
@@ -252,6 +270,7 @@ func (m *Model) moveManualQueueEntry(index, delta int) {
 	if m.queue != nil {
 		m.queue.index = target
 	}
+	m.refreshQueue()
 }
 
 // moveManualQueueToTop puts the manual entry of the queue at the first place:
@@ -268,6 +287,7 @@ func (m *Model) moveManualQueueToTop(index int) {
 	if m.queue != nil {
 		m.queue.index = 0
 	}
+	m.refreshQueue()
 }
 
 func (m *Model) removeManualQueueEntry(index int) {
@@ -281,6 +301,7 @@ func (m *Model) removeManualQueueEntry(index int) {
 	if m.queue.index < 0 {
 		m.queue.index = 0
 	}
+	m.refreshQueue()
 }
 
 // rowAt returns the index of the row under the given screen coordinates.
@@ -361,7 +382,15 @@ func (m *Model) finishQueueDrag() {
 	if from < 0 || to < 0 || from == to {
 		return
 	}
-	if from >= len(m.manualQueue) || to >= len(m.manualQueue) {
+	if from >= len(m.manualQueue) {
+		return
+	}
+	// the rows after the manual block belong to the playlist: a track
+	// dropped there ends up at the end of the queue instead of being lost
+	if to >= len(m.manualQueue) {
+		to = len(m.manualQueue) - 1
+	}
+	if from == to {
 		return
 	}
 
@@ -373,6 +402,7 @@ func (m *Model) finishQueueDrag() {
 	m.manualQueue = append(m.manualQueue[:to], append([]api.Track{track}, rest...)...)
 
 	m.queue.index = to
+	m.refreshQueue()
 	m.showToast("Очередь переставлена")
 }
 

@@ -53,6 +53,9 @@ type Model struct {
 	likedTracksMap    map[string]bool
 	dislikedTracksMap map[string]bool
 	cachedTracksMap   map[string]bool
+	// downloadingTracks holds the tracks the user asked to save into the
+	// cache and that are still on their way
+	downloadingTracks map[string]bool
 
 	mouse       mouseLayout
 	hotkeys     *hotkeys.Tracker
@@ -164,6 +167,7 @@ func New(mediaHandler handler.MediaHandler) *Model {
 	m.likedTracksMap = make(map[string]bool)
 	m.dislikedTracksMap = make(map[string]bool)
 	m.cachedTracksMap = make(map[string]bool)
+	m.downloadingTracks = make(map[string]bool)
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.Points))
 	m.playlists = playlist.New(m.program, "YaMusic")
 	m.tracklist = tracklist.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap, &m.cachedTracksMap)
@@ -405,6 +409,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case trackReadyMsg:
 		m.applyLoadedTrack(msg)
 		return m, nil
+
+	case trackDownloadedMsg:
+		return m, m.applyDownloadedTrack(msg)
 
 	case waveStationsMsg:
 		if m.wave != nil {
