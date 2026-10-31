@@ -96,8 +96,20 @@ type Model struct {
 	// and is updated on mouse motion.
 	hover Hover
 
+	// repeatMode controls what happens when the last track ends.
+	repeatMode RepeatMode
+
 	regions *Regions
 }
+
+// RepeatMode controls what happens when the queue ends.
+type RepeatMode int
+
+const (
+	RepeatOff RepeatMode = iota // no repeat
+	RepeatAll                   // repeat the whole queue
+	RepeatOne                   // repeat the current track
+)
 
 // Hover names the control the mouse pointer is over.
 type Hover int
@@ -107,6 +119,7 @@ const (
 	HoverPrev
 	HoverPlay
 	HoverNext
+	HoverRepeat
 	HoverProgress
 	HoverVolume
 	HoverEQ
@@ -246,6 +259,24 @@ func (m *Model) view() (string, *Regions) {
 	}
 	prevButton := prevStyle.Render(style.IconPrev)
 	nextButton := nextStyle.Render(style.IconNext)
+
+	// repeat button: dim while the repeat is off, accented while it is on,
+	// so the three states are told apart at a glance
+	repeatStyle := style.ButtonStyle.Padding(0, 1).Margin(0)
+	repeatIcon := "🔁"
+	switch m.repeatMode {
+	case RepeatAll:
+		repeatStyle = style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+	case RepeatOne:
+		repeatStyle = style.ActiveButtonStyle.Padding(0, 1).Margin(0)
+		repeatIcon = "🔂"
+	}
+	if m.hover == HoverRepeat {
+		repeatStyle = repeatStyle.Bold(true).Underline(true)
+	}
+	repeatButton := repeatStyle.Render(repeatIcon)
+	repeatButtonWidth := lipgloss.Width(repeatButton)
+
 	transportGap := "  "
 
 	var volumeIndicator string
@@ -295,6 +326,8 @@ func (m *Model) view() (string, *Regions) {
 		len(transportGap) +
 		lipgloss.Width(nextButton) +
 		len(transportGap) +
+		repeatButtonWidth +
+		len(transportGap) +
 		style.TrackProgressStyle.GetPaddingLeft() +
 		volumeIndicatorWidth +
 		len(transportGap) +
@@ -318,6 +351,7 @@ func (m *Model) view() (string, *Regions) {
 	tracker := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		prevButton, transportGap, playButton, transportGap, nextButton, transportGap,
+		repeatButton, transportGap,
 		progressBlock, volumeIndicator, transportGap, eqButton,
 	)
 
@@ -343,18 +377,21 @@ func (m *Model) view() (string, *Regions) {
 	prevW := lipgloss.Width(prevButton)
 	playW := lipgloss.Width(playButton)
 	nextW := lipgloss.Width(nextButton)
+	repeatW := lipgloss.Width(repeatButton)
 	gapW := len(transportGap)
 
 	prevX := contentX
 	playX := prevX + prevW + gapW
 	nextX := playX + playW + gapW
-	progressX := nextX + nextW + gapW + style.TrackProgressStyle.GetPaddingLeft()
+	repeatX := nextX + nextW + gapW
+	progressX := repeatX + repeatW + gapW + style.TrackProgressStyle.GetPaddingLeft()
 	volumeX := progressX - style.TrackProgressStyle.GetPaddingLeft() + lipgloss.Width(progressBlock)
 	eqX := volumeX + volumeBarX + m.volumeBar.Width + gapW
 
 	regions.PrevButton = Rect{X: prevX, Y: rowY, Width: prevW, Height: 1}
 	regions.PlayButton = Rect{X: playX, Y: rowY, Width: playW, Height: 1}
 	regions.NextButton = Rect{X: nextX, Y: rowY, Width: nextW, Height: 1}
+	regions.Repeat = Rect{X: repeatX, Y: rowY, Width: repeatW, Height: 1}
 	regions.Progress = Rect{X: progressX, Y: rowY, Width: m.progress.Width, Height: 1}
 	regions.Volume = Rect{X: volumeX, Y: rowY, Width: volumeIndicatorWidth, Height: 1}
 	regions.VolumeBar = Rect{X: volumeX + volumeBarX, Y: rowY, Width: m.volumeBar.Width, Height: 1}
@@ -649,6 +686,16 @@ func (m *Model) SetRewind(amount time.Duration) {
 	m.rewindAmount = amount
 	config.Current.RewindDuration = amount.Seconds()
 	config.Save()
+}
+
+// SetRepeatMode sets the repeat mode for the queue.
+func (m *Model) SetRepeatMode(mode RepeatMode) {
+	m.repeatMode = mode
+}
+
+// RepeatMode returns the current repeat mode.
+func (m *Model) RepeatMode() RepeatMode {
+	return m.repeatMode
 }
 
 // Lyrics reports whether the lyrics panel is shown.

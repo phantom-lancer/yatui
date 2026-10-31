@@ -247,7 +247,7 @@ func Token(username, password string) (token string, err error) {
 
 	errDesc, ok := respBody["error_description"]
 	if ok {
-		err = fmt.Errorf(errDesc)
+		err = fmt.Errorf("%s", errDesc)
 		return
 	}
 

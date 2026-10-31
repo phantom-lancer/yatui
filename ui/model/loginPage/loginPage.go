@@ -32,7 +32,9 @@ func New() *Model {
 	}
 
 	m.input.Width = 64
-	m.input.CharLimit = 64
+	// a Yandex token is a long string: the old limit cut longer ones
+	m.input.CharLimit = 512
+	m.input.Placeholder = "paste your token here"
 	m.input.Focus()
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())

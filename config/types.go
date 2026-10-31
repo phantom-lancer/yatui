@@ -270,7 +270,7 @@ var defaultConfig = Config{
 		CursorUp:                 NewKey("up"),
 		CursorDown:               NewKey("down"),
 		Reload:                   NewKey("ctrl+\\"),
-		ShowAllKeys:              NewKey("?"),
+		ShowAllKeys:              NewKey("?"), // key name: "show-all-keys"
 		Theme:                    NewKey("ctrl+y"),
 		Settings:                 NewKey("f11"),
 		WaveSettings:             NewKey("f10"),
@@ -345,4 +345,7 @@ var defaultConfig = Config{
 	},
 }
 
+// DirName is the name of the config, cache and log directories. It has been
+// "yamusic-tui" since the first release: changing it would move the user's
+// token and settings to a new, empty directory.
 const DirName = "yamusic-tui"

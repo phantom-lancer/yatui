@@ -53,6 +53,7 @@ type Regions struct {
 	PrevButton Rect
 	PlayButton Rect
 	NextButton Rect
+	Repeat     Rect
 	Progress   Rect
 	// Volume is the whole volume indicator (icon included)
 	Volume Rect
@@ -71,6 +72,7 @@ func (r *Regions) Offset(x, y int) {
 	r.PrevButton = r.PrevButton.Offset(x, y)
 	r.PlayButton = r.PlayButton.Offset(x, y)
 	r.NextButton = r.NextButton.Offset(x, y)
+	r.Repeat = r.Repeat.Offset(x, y)
 	r.Progress = r.Progress.Offset(x, y)
 	r.Volume = r.Volume.Offset(x, y)
 	r.VolumeBar = r.VolumeBar.Offset(x, y)

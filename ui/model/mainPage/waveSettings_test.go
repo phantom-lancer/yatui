@@ -60,6 +60,12 @@ func TestWaveGroupsAreBuiltFromTheStations(t *testing.T) {
 
 // TestWaveSettingsChangeTheValues checks the keys of the window.
 func TestWaveSettingsChangeTheValues(t *testing.T) {
+	// the window shows the values of the config: the test starts from the
+	// defaults, not from whatever the machine running it has chosen
+	previous := config.Current.Wave
+	config.Current.Wave = nil
+	t.Cleanup(func() { config.Current.Wave = previous })
+
 	wave := &waveSettingsModel{}
 	wave.setStations(testStations())
 

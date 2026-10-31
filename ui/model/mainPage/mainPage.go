@@ -138,6 +138,9 @@ type Model struct {
 	// progressDrawn is when the frame with the playback progress was drawn:
 	// the bar is refreshed at the idle rate instead of every sample
 	progressDrawn time.Time
+
+	// repeatMode controls queue behavior: off, all, one.
+	repeatMode tracker.RepeatMode
 }
 
 // mainpage.Model constructor.
@@ -476,6 +479,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			go m.initialLoad()
 		case keypress == "/":
 			cmds = append(cmds, m.openTrackSearch())
+		case keypress == "r":
+			m.toggleRepeat()
 		default:
 			if m.isLoading {
 				m.spinner, cmd = m.spinner.Update(message)

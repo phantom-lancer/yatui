@@ -166,9 +166,19 @@ func (m *Model) nextTrack() {
 	}
 
 	if m.playQueueTrackIndex >= len(m.playQueue) {
-		m.playQueueTrackIndex = 0
-		m.Send(tracker.STOP)
-		return
+		// the queue ended: repeat the track that just played, wrap to the
+		// start, or stop
+		m.playQueueTrackIndex = repeatWrapIndex(len(m.playQueue), m.repeatMode)
+		if m.playQueueTrackIndex < 0 {
+			m.Send(tracker.STOP)
+			return
+		}
+		if m.repeatMode == tracker.RepeatAll {
+			for m.playQueueTrackIndex < len(m.playQueue)-1 &&
+				!m.playQueue[m.playQueueTrackIndex].Available {
+				m.playQueueTrackIndex++
+			}
+		}
 	}
 
 	track := &m.playQueue[m.playQueueTrackIndex]
@@ -347,6 +357,7 @@ func (m *Model) playTrack(track *api.Track) {
 	}
 
 	m.tracker.SetNextTrack(m.nextTrackTitle())
+	m.tracker.SetRepeatMode(m.repeatMode)
 	if !m.tracker.StartTrack(track, trackBuffer, lyrics) {
 		// the track is broken: the next one is tried instead
 		m.failedTracks++
@@ -444,4 +455,43 @@ func (m *Model) playSelectedPlaylist(trackIndex int) {
 	m.playQueue = selectedPlaylist.Tracks
 	m.playQueueTrackIndex = trackIndex
 	m.playTrack(trackToPlay)
+}
+
+// repeatWrapIndex tells where the playback goes after the last track of the
+// queue: the track that just played (RepeatOne), the first one (RepeatAll) or
+// nowhere (RepeatOff, -1).
+func repeatWrapIndex(queueLen int, mode tracker.RepeatMode) int {
+	switch mode {
+	case tracker.RepeatOne:
+		return queueLen - 1
+	case tracker.RepeatAll:
+		return 0
+	default:
+		return -1
+	}
+}
+
+// toggleRepeat cycles through repeat modes: off → all → one → off.
+func (m *Model) toggleRepeat() {
+	switch m.repeatMode {
+	case tracker.RepeatOff:
+		m.repeatMode = tracker.RepeatAll
+	case tracker.RepeatAll:
+		m.repeatMode = tracker.RepeatOne
+	default:
+		m.repeatMode = tracker.RepeatOff
+	}
+	m.showToast("Повтор: " + repeatLabel(m.repeatMode))
+}
+
+// repeatLabel names a repeat mode for the notification.
+func repeatLabel(mode tracker.RepeatMode) string {
+	switch mode {
+	case tracker.RepeatAll:
+		return "весь плейлист"
+	case tracker.RepeatOne:
+		return "один трек"
+	default:
+		return "выкл"
+	}
 }
