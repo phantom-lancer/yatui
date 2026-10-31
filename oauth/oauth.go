@@ -1,10 +1,10 @@
 // Package oauth obtains a Yandex token through the OAuth authorization code
 // flow with PKCE.
 //
-// It is not wired into the login page yet: Yandex requires the redirect URI to
-// be registered for the client, and the client id of the original yamusic-tui
-// project is not registered for a localhost redirect. The login page keeps the
-// manual token input until a client of the user's own is configured here.
+// The client is registered on oauth.yandex.ru as a web service with the
+// redirect URI http://127.0.0.1:8080: the browser is sent there after the
+// user allows the access, and the local server hands the code over to the
+// token endpoint.
 package oauth
 
 import (
@@ -13,259 +13,228 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 )
 
-// TokenResponse represents the OAuth token response from Yandex.
+const (
+	// clientID and clientSecret belong to the "yatui" web service of the
+	// user. The redirect URI of that client must match redirectURI exactly.
+	clientID     = "31c5aa11dbdd4fdd8752aa462ce0db47"
+	clientSecret = "8c6c3f12a9d5446b8fcf5e47e157c1c3"
+	redirectURI  = "http://127.0.0.1:8080"
+)
+
+// OAuthError is an error returned by Yandex OAuth.
+type OAuthError struct {
+	Code        string `json:"error"`
+	Description string `json:"error_description"`
+}
+
+func (e *OAuthError) Error() string {
+	if e.Description != "" {
+		return e.Code + ": " + e.Description
+	}
+	return e.Code
+}
+
+// TokenResponse is the answer of the token endpoint.
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
 
-// OAuthError represents an error returned by Yandex OAuth.
-type OAuthError struct {
-	OAuthErrorField string `json:"error"`
-	ErrorDesc       string `json:"error_description"`
-}
-
-func (e *OAuthError) Error() string {
-	if e.ErrorDesc != "" {
-		return fmt.Sprintf("%s: %s", e.OAuthErrorField, e.ErrorDesc)
-	}
-	return e.OAuthErrorField
-}
-
-// GetToken performs OAuth2 Authorization Code Flow with PKCE.
-// It opens a browser for authorization, then listens on a local port
-// to receive the authorization code and exchange it for a token.
+// GetToken performs the authorization code flow: it opens the browser, waits
+// for the callback and exchanges the code for a token. The caller decides how
+// long the user may take through ctx.
 func GetToken(ctx context.Context) (string, error) {
-	// Generate PKCE parameters
-	codeVerifier := generateCodeVerifier()
-	codeChallenge := generateCodeChallenge(codeVerifier)
-
-	// Use a fixed redirect_uri that should be registered for this client_id
-	// Try multiple common ports since we don't know which is registered
-	ports := []int{8080, 8081, 8082, 4321, 9876, 3000, 5000, 5001, 1234, 6543}
-
-	var lastErr error
-	for _, port := range ports {
-		redirectURI := fmt.Sprintf("http://127.0.0.1:%d", port)
-
-		// Try to start a listener on this port
-		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			continue // Port busy, try next
-		}
-
-		// Successfully bound to port, try OAuth with this redirect_uri
-		token, err := tryOAuth(ctx, redirectURI, codeChallenge, codeVerifier, listener)
-		if err != nil {
-			listener.Close()
-			lastErr = err
-			// Check if it's a Yandex registration error (redirect_uri not registered)
-			if isRegistrationError(err) {
-				// Try next port
-				continue
-			}
-			return "", err
-		}
-		return token, nil
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		return "", fmt.Errorf("port 8080 is busy: %w", err)
 	}
+	defer listener.Close()
 
-	// All ports failed - provide helpful error message
-	msg := "OAuth authorization failed. The Yandex OAuth client is not registered with any redirect_uri.\n\n"
-	msg += "To fix this:\n"
-	msg += "1. Go to https://oauth.yandex.ru/\n"
-	msg += "2. Click 'New client'\n"
-	msg += "3. Select 'Web service' and 'Yandex Account'\n"
-	msg += "4. Set redirect URI: http://127.0.0.1:8080\n"
-	msg += "5. Copy the client_id and replace it in oauth/oauth.go\n\n"
-	if lastErr != nil {
-		msg += "Last error: " + lastErr.Error()
+	verifier := randomString()
+	state := randomString()
+
+	answers := make(chan oauthAnswer, 1)
+	server := &http.Server{Handler: callbackHandler(state, answers)}
+	go server.Serve(listener)
+	defer shutdown(server)
+
+	openBrowser(authorizeURL(state, verifier))
+
+	code, err := awaitCode(ctx, answers)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("%s", msg)
+	return exchangeCode(ctx, code, verifier)
 }
 
-// isRegistrationError checks if the error indicates redirect_uri is not registered.
-func isRegistrationError(err error) bool {
-	if oauthErr, ok := err.(*OAuthError); ok {
-		// Yandex returns "unauthorized_client" or "invalid_request" for unregistered redirect_uri
-		return oauthErr.OAuthErrorField == "unauthorized_client" ||
-			oauthErr.OAuthErrorField == "invalid_request" ||
-			strings.Contains(oauthErr.ErrorDesc, "redirect_uri") ||
-			strings.Contains(oauthErr.ErrorDesc, "не найден") ||
-			strings.Contains(oauthErr.ErrorDesc, "устарело")
-	}
-	return false
-}
-
-func tryOAuth(ctx context.Context, redirectURI, codeChallenge, codeVerifier string, listener net.Listener) (string, error) {
-	// Channel to receive the authorization code
-	authCodeChan := make(chan string, 1)
-	errChan := make(chan error, 1)
-
-	// HTTP handler for the OAuth callback
+// callbackHandler answers the redirect of the browser. The state proves that
+// the request belongs to the authorization the program has started.
+func callbackHandler(state string, answers chan<- oauthAnswer) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Check for authorization code in query params
-		code := r.URL.Query().Get("code")
-		_ = r.URL.Query().Get("state") // state is optional
-		if code != "" {
-			authCodeChan <- code
-			// Show success page
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			io.WriteString(w, `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Authorization Success</title></head>
-<body style="font-family:system-ui;text-align:center;padding:50px;background:#1a1a2e;color:#e0e0e0;">
-<h2>Authorization successful!</h2>
-<p>You can close this window and return to the application.</p>
-</body></html>`)
-			go func() {
-				time.Sleep(2 * time.Second)
-				listener.Close()
-			}()
+		query := r.URL.Query()
+		if query.Get("state") != state {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 			return
 		}
 
-		// Check for error from Yandex
-		errMsg := r.URL.Query().Get("error")
-		errDesc := r.URL.Query().Get("error_description")
-		if errMsg != "" {
-			errChan <- &OAuthError{OAuthErrorField: errMsg, ErrorDesc: errDesc}
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, fmt.Sprintf(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Authorization Error</title></head>
-<body style="font-family:system-ui;text-align:center;padding:50px;background:#1a1a2e;color:#ff6b6b;">
-<h2>Authorization failed</h2>
-<p>%s</p>
-</body></html>`, errDesc))
-			go func() {
-				time.Sleep(2 * time.Second)
-				listener.Close()
-			}()
+		if code := query.Get("error"); code != "" {
+			page(w, http.StatusBadRequest, "Authorization failed",
+				query.Get("error_description"))
+			answers <- oauthAnswer{err: &OAuthError{
+				Code:        code,
+				Description: query.Get("error_description"),
+			}}
 			return
 		}
 
-		// Unknown response
-		w.WriteHeader(http.StatusNotFound)
+		if code := query.Get("code"); code != "" {
+			page(w, http.StatusOK, "Authorization successful!",
+				"You can close this page and return to yatui.")
+			answers <- oauthAnswer{code: code}
+			return
+		}
+
+		http.NotFound(w, r)
 	})
+	return mux
+}
 
-	server := &http.Server{Handler: mux}
-	go func() {
-		server.Serve(listener)
-	}()
+// oauthAnswer carries the result of the callback; the buffer keeps the
+// handler from blocking on a late second request.
+type oauthAnswer struct {
+	code string
+	err  error
+}
 
-	// Open browser with OAuth URL
-	oauthURL := fmt.Sprintf(
-		"https://oauth.yandex.ru/authorize?client_id=23bebbd942d5470da5c4c8357a3ac388"+
-			"&redirect_uri=%s"+
-			"&response_type=code"+
-			"&code_challenge=%s"+
-			"&code_challenge_method=S256",
-		redirectURI,
-		codeChallenge,
-	)
-	openBrowser(oauthURL)
-
-	// Wait for auth code, error, or context cancellation
+func awaitCode(ctx context.Context, answers <-chan oauthAnswer) (string, error) {
 	select {
-	case code := <-authCodeChan:
-		// Exchange code for token
-		token, err := exchangeCode(ctx, code, codeVerifier, redirectURI)
-		if err != nil {
-			return "", err
-		}
-		return token, nil
-
-	case err := <-errChan:
-		server.Close()
-		return "", err
-
+	case a := <-answers:
+		return a.code, a.err
 	case <-ctx.Done():
-		server.Close()
 		return "", ctx.Err()
 	}
 }
 
-// generateCodeVerifier creates a random code verifier (43-128 characters).
-func generateCodeVerifier() string {
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	return base64.RawURLEncoding.EncodeToString(bytes)
+// authorizeURL builds the address the browser opens. The permissions are the
+// ones chosen for the client at registration, so no scope is requested here.
+func authorizeURL(state, verifier string) string {
+	query := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {clientID},
+		"redirect_uri":          {redirectURI},
+		"state":                 {state},
+		"code_challenge":        {codeChallenge(verifier)},
+		"code_challenge_method": {"S256"},
+	}
+	return "https://oauth.yandex.ru/authorize?" + query.Encode()
 }
 
-// generateCodeChallenge creates the code challenge from the verifier.
-func generateCodeChallenge(verifier string) string {
-	hash := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(hash[:])
-}
-
-// exchangeCode exchanges the authorization code for an access token.
-func exchangeCode(ctx context.Context, code, codeVerifier, redirectURI string) (string, error) {
-	data := fmt.Sprintf(
-		"grant_type=authorization_code&code=%s&code_verifier=%s&redirect_uri=%s",
-		code, codeVerifier, redirectURI,
-	)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://oauth.yandex.ru/token", strings.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("failed to create token request: %w", err)
+// exchangeCode trades the code for a token. The client secret is passed with
+// Basic auth, the PKCE verifier proves that the code belongs to this attempt.
+func exchangeCode(ctx context.Context, code, verifier string) (string, error) {
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"code_verifier": {verifier},
+		"redirect_uri":  {redirectURI},
 	}
 
-	// Use Basic Auth with client_id (empty password as per OAuth2 spec for public clients)
-	req.SetBasicAuth("23bebbd942d5470da5c4c8357a3ac388", "")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://oauth.yandex.ru/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(clientID, clientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send token request: %w", err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return "", err
 	}
 
-	// Check for error response
 	if resp.StatusCode != http.StatusOK {
 		var oauthErr OAuthError
-		if json.Unmarshal(body, &oauthErr) == nil {
+		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Code != "" {
 			return "", &oauthErr
 		}
-		return "", fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("token request failed (%d): %s",
+			resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var tokenResp TokenResponse
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", fmt.Errorf("failed to parse token response: %w", err)
+	var token TokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return "", err
 	}
-
-	if tokenResp.AccessToken == "" {
-		return "", fmt.Errorf("empty access token in response")
+	if token.AccessToken == "" {
+		return "", errors.New("empty token in the response")
 	}
-
-	return tokenResp.AccessToken, nil
+	return token.AccessToken, nil
 }
 
-func openBrowser(targetURL string) {
+// randomString is a code verifier and a state: 32 random bytes in base64url.
+func randomString() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// crypto/rand never fails on the supported systems; a weak value is
+		// still better than no authorization at all
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes)
+}
+
+func codeChallenge(verifier string) string {
+	hash := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
+}
+
+// page shows a short message in the browser after the redirect.
+func page(w http.ResponseWriter, status int, title, text string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	io.WriteString(w, `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>`+title+`</title></head>
+<body style="font-family:system-ui;text-align:center;padding:50px;background:#1a1a2e;color:#e0e0e0;">
+<h2>`+title+`</h2><p>`+text+`</p>
+</body></html>`)
+}
+
+// shutdown closes the local server after the page has been sent.
+func shutdown(server *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = server.Shutdown(ctx)
+}
+
+// openBrowser opens the address in the default browser. On Windows the whole
+// address is passed to rundll32: "cmd /c start" would cut it at the first &
+// and lose the query parameters.
+func openBrowser(target string) {
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("cmd", "/c", "start", targetURL).Start()
+		exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
 	case "darwin":
-		exec.Command("open", targetURL).Start()
-	case "linux":
-		exec.Command("xdg-open", targetURL).Start()
+		exec.Command("open", target).Start()
 	default:
-		exec.Command("xdg-open", targetURL).Start()
+		exec.Command("xdg-open", target).Start()
 	}
 }

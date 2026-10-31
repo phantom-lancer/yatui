@@ -16,12 +16,10 @@ import (
 )
 
 func main() {
-	for _, arg := range os.Args[1:] {
-		switch arg {
-		case "--version", "-v", "version":
-			fmt.Println("yatui " + mainpage.Version)
-			return
-		}
+	forceLogin, showVersion := parseArgs(os.Args[1:])
+	if showVersion {
+		fmt.Println("yatui " + mainpage.Version)
+		return
 	}
 
 	log.Start()
@@ -54,7 +52,10 @@ func main() {
 	style.Apply(config.Current.Style)
 	api.SetupClient(config.Current.Proxy, certPool)
 
-	if config.Current.Token == "" {
+	if config.Current.Token == "" || forceLogin {
+		if forceLogin {
+			log.Print(log.LVL_INFO, "login page requested from the command line")
+		}
 		err = loginpage.New().Run()
 		if err != nil {
 			log.Print(log.LVL_PANIC, err.Error())
@@ -69,4 +70,19 @@ func main() {
 		log.Print(log.LVL_PANIC, err.Error())
 		model.PrettyExit(err, 6)
 	}
+}
+
+// parseArgs reads the command line. forceLogin shows the login page even when
+// a token is already saved, so the browser sign-in can be used without losing
+// the token; showVersion prints the version and exits.
+func parseArgs(args []string) (forceLogin, showVersion bool) {
+	for _, arg := range args {
+		switch arg {
+		case "--version", "-v", "version":
+			showVersion = true
+		case "--login", "-login":
+			forceLogin = true
+		}
+	}
+	return forceLogin, showVersion
 }
