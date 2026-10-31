@@ -28,10 +28,17 @@ func printGoodbye() {
 	fmt.Println()
 }
 
+// buildTag marks a build between releases, e.g. "fix5". It is set at build
+// time with -X main.buildTag=fix5 and is not shown when empty.
+var buildTag string
+
 // buildLabel is the version plus the commit and the date of the build, so a
 // build from the middle of a fix series can be told apart from a release.
 func buildLabel() string {
 	label := mainpage.Version
+	if buildTag != "" {
+		label += " · " + buildTag
+	}
 
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
