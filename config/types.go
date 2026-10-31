@@ -224,7 +224,7 @@ type Config struct {
 	// RgbFrameMs is how often the rgb theme repaints the window, in
 	// milliseconds: a smaller frame is smoother and costs more CPU. Zero
 	// means the default.
-	RgbFrameMs int `yaml:"rgb-frame-ms"`
+	RgbFrameMs int `yaml:"rgb-frame-ms,omitempty"`
 }
 
 var defaultConfig = Config{
