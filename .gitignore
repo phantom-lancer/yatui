@@ -1,5 +1,14 @@
 .vscode/
-*.exe
-yamusic
-yamusic-tui
 .idea/
+
+# build output
+/yatui
+/yatui.exe
+/yatui-nomedia
+/yatui-linux-*
+/yatui-windows-*
+/dist/
+*.tar.gz
+
+# recording
+demo.gif

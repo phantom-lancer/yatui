@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  create:
     name: Create release
     runs-on: ubuntu-latest
     steps:
@@ -17,9 +17,9 @@ jobs:
         with:
           generate_release_notes: true
 
-  build:
-    name: Linux binaries
-    needs: release
+  linux:
+    name: Linux
+    needs: create
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,22 +28,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Download dependencies
-        run: go mod vendor
-      - name: Pack vendor dir
-        run: tar -czf yatui-vendor.tar.gz ./vendor
       - name: Build
         run: |
-          go build -trimpath -ldflags="-w -s" -o yatui
-          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-nomedia
+          go build -trimpath -ldflags="-w -s" -o yatui-linux-amd64
+          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-linux-amd64-nomedia
       - name: Upload
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" yatui yatui-nomedia yatui-vendor.tar.gz --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" yatui-linux-amd64 yatui-linux-amd64-nomedia --clobber
 
-  build-windows:
-    name: Windows binaries
-    needs: release
+  windows:
+    name: Windows
+    needs: create
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,8 +56,8 @@ jobs:
         run: gh release upload "$env:GITHUB_REF_NAME" yatui-windows-amd64.exe yatui-windows-amd64-nomedia.exe --clobber
 
   checksums:
-    name: SHA256SUMS
-    needs: [build, build-windows]
+    name: Checksums
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download assets
@@ -71,7 +67,8 @@ jobs:
       - name: Compute
         run: |
           cd dist
-          sha256sum *.exe yatui yatui-nomedia yatui-vendor.tar.gz > SHA256SUMS
+          sha256sum yatui-linux-amd64 yatui-linux-amd64-nomedia \
+            yatui-windows-amd64.exe yatui-windows-amd64-nomedia.exe > SHA256SUMS
       - name: Upload
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
