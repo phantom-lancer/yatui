@@ -627,7 +627,7 @@ func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
 
 	if pl.Rotor {
 		items = append(items, contextMenuItem{
-			label: "Change mood",
+			label: "Сменить настроение",
 			action: func(m *Model) tea.Cmd {
 				return m.openStationPicker(x, y)
 			},
@@ -636,7 +636,7 @@ func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
 
 	if pl.Kind == playlist.LIKES || pl.Kind == playlist.LOCAL {
 		items = append(items, contextMenuItem{
-			label: "Shuffle",
+			label: "Перемешать",
 			action: func(m *Model) tea.Cmd {
 				return m.shufflePlaylist(pl)
 			},
@@ -669,27 +669,27 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 	selectedPlaylist := m.playlists.SelectedItem()
 
 	menuItems := []contextMenuItem{
-		{label: "Play", action: func(m *Model) tea.Cmd { return m.playTrackAt(trackIdx) }},
-		{label: "Play next", action: func(m *Model) tea.Cmd {
+		{label: "Играть", action: func(m *Model) tea.Cmd { return m.playTrackAt(trackIdx) }},
+		{label: "Следующим", action: func(m *Model) tea.Cmd {
 			m.addNext(track)
 			return nil
 		}},
-		{label: "Add to queue", action: func(m *Model) tea.Cmd {
+		{label: "В очередь", action: func(m *Model) tea.Cmd {
 			m.addToQueue(track)
 			return nil
 		}},
 		{label: "Скачать в кэш", action: func(m *Model) tea.Cmd { return m.downloadTrack(track) }},
-		{label: "Start radio", action: func(m *Model) tea.Cmd { return m.playRadioByTrack(track) }},
-		{label: "Add to playlist", action: func(m *Model) tea.Cmd {
-			m.searchDialog.Title = "Add " + track.Title + " to"
+		{label: "Радио по треку", action: func(m *Model) tea.Cmd { return m.playRadioByTrack(track) }},
+		{label: "В плейлист", action: func(m *Model) tea.Cmd {
+			m.searchDialog.Title = "Добавить " + track.Title + " в"
 			m.searchDialog.Action = "add"
 			m.isAddPlaylistActive = true
 			m.Send(search.UPDATE_SUGGESTIONS)
 			return nil
 		}},
-		{label: "Like", action: func(m *Model) tea.Cmd { return m.likeTrackAt(trackIdx) }},
-		{label: "Dislike", action: func(m *Model) tea.Cmd { return m.dislikeTrackAt(trackIdx) }},
-		{label: "Share", action: func(m *Model) tea.Cmd {
+		{label: "Нравится", action: func(m *Model) tea.Cmd { return m.likeTrackAt(trackIdx) }},
+		{label: "Не нравится", action: func(m *Model) tea.Cmd { return m.dislikeTrackAt(trackIdx) }},
+		{label: "Скопировать ссылку", action: func(m *Model) tea.Cmd {
 			link := api.ShareTrackLink(track)
 			if link != "" {
 				m.clipboard.CopyText(link)
@@ -697,14 +697,14 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 			}
 			return nil
 		}},
-		{label: "Show artist", action: func(m *Model) tea.Cmd {
+		{label: "К артисту", action: func(m *Model) tea.Cmd {
 			return m.showArtist(track)
 		}},
 	}
 
 	if selectedPlaylist != nil && selectedPlaylist.Kind >= playlist.USER && selectedPlaylist.Kind != playlist.MYWAVE {
 		menuItems = append(menuItems, contextMenuItem{
-			label: "Remove from playlist",
+			label: "Убрать из плейлиста",
 			action: func(m *Model) tea.Cmd {
 				return m.removeFromPlaylist(selectedPlaylist, trackIdx)
 			},

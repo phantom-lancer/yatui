@@ -41,7 +41,7 @@ func (m *Model) initialLoad() {
 				m.tracker.ShowError("unable to connect to the Yandex server")
 			} else {
 				log.Print(log.LVL_ERROR, "client init error: %s", err)
-				m.tracker.ShowError("unable to login: " + err.Error())
+				m.tracker.ShowError("Не удалось войти: " + err.Error() + " — проверьте сеть или токен (yatui --login)")
 			}
 		}
 	}

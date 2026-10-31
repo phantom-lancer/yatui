@@ -52,7 +52,7 @@ const oauthTimeout = 5 * time.Minute
 
 // buttonLabel is what the sign-in button says; the view finds it to place the
 // click area.
-const buttonLabel = "Sign in via browser"
+const buttonLabel = "Войти через браузер"
 
 // tokenSource tells where a token came from, because the advice for a token
 // without Music API access depends on it.
@@ -75,7 +75,10 @@ func New() *Model {
 	m.input.Width = 64
 	// a Yandex token is a long string: the old limit cut longer ones
 	m.input.CharLimit = 512
-	m.input.Placeholder = "paste your token here"
+	// the token is a password: it must not be readable on a screenshot or a
+	// stream
+	m.input.EchoMode = textinput.EchoPassword
+	m.input.Placeholder = "вставьте токен сюда"
 	m.input.Focus()
 
 	// the hover of the button needs the motion events, not only the clicks
@@ -153,20 +156,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.accept(msg.token)
 		}
 		if msg.source == sourceOAuth {
-			m.uiErr = errors.New("Yandex refused the Music API access for this sign-in. " +
-				"Try again, or paste a token of music.yandex.ru. " +
-				"The saved token was not changed.")
+			m.uiErr = errors.New("Яндекс не дал доступ к Music API для этого входа. " +
+				"Попробуйте ещё раз или вставьте токен с music.yandex.ru. " +
+				"Сохранённый токен не изменён.")
 		} else {
-			m.uiErr = errors.New("this token cannot open the Music API. " +
-				"Check that it is a token of music.yandex.ru. " +
-				"The saved token was not changed.")
+			m.uiErr = errors.New("Этот токен не открывает Music API. " +
+				"Проверьте, что он от music.yandex.ru. " +
+				"Сохранённый токен не изменён.")
 		}
 		return m, nil
-
-	case hotkeys.HotkeyMsg:
-		// player hotkeys confirm the entered token, or start the browser
-		// authorization when the field is empty
-		return m, m.confirm()
 
 	case tea.KeyMsg:
 		m.hotkeys.Observe(msg)
@@ -178,10 +176,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case m.busy:
 			// the browser window or the check has the focus
-		case controls.Apply.Contains(keypress),
-			controls.PlayerRewindBackward.Contains(keypress),
-			controls.PlayerStop.Contains(keypress),
-			controls.PlayerRewindForward.Contains(keypress):
+		case controls.Apply.Contains(keypress):
+			// only the explicit "apply" key submits the form: a player hotkey
+			// (a volume key, for example) must not send a half-typed token
 			return m, m.confirm()
 		default:
 			m.input, cmd = m.input.Update(msg)
@@ -203,7 +200,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
-	title := style.DialogTitleStyle.Render("Enter your token")
+	title := style.DialogTitleStyle.Render("Введите токен")
 	inputView := m.input.View()
 
 	buttonStyle := style.ButtonStyle.Padding(0, 3)
@@ -218,17 +215,17 @@ func (m *Model) View() string {
 		m.buttonW = 0
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			title,
-			style.AccentTextStyle.Render("Waiting for the browser..."),
-			"Open "+m.device.VerificationURL+" and enter the code:",
+			style.AccentTextStyle.Render("Жду подтверждения в браузере…"),
+			"Откройте "+m.device.VerificationURL+" и введите код:",
 			style.AccentTextStyle.Bold(true).Render(m.device.UserCode),
-			style.DialogHelpStyle.Render("the code is copied to the clipboard"),
+			style.DialogHelpStyle.Render("код скопирован в буфер обмена"),
 		)
 	case m.busy:
 		m.buttonW = 0
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			title,
 			style.AccentTextStyle.Render(m.busyText),
-			"Keep this window open, the token is saved automatically.",
+			"Не закрывайте окно, токен сохранится сам.",
 		)
 	default:
 		content = lipgloss.JoinVertical(lipgloss.Left, title, inputView, button)
@@ -245,7 +242,7 @@ func (m *Model) View() string {
 	var hint string
 	if !m.busy {
 		hint = style.DialogHelpStyle.Render(
-			"Paste a music.yandex.ru token, or press the button to sign in on ya.ru/device")
+			"Вставьте токен music.yandex.ru или войдите через браузер (ya.ru/device)")
 	}
 
 	block := lipgloss.JoinVertical(lipgloss.Left, box, hint, helpView)
@@ -336,7 +333,7 @@ func (m *Model) accept(token string) tea.Cmd {
 // the Music API must not replace the saved one.
 func (m *Model) checkToken(token string, source tokenSource) tea.Cmd {
 	m.busy = true
-	m.busyText = "Checking the token..."
+	m.busyText = "Проверяю токен…"
 	m.uiErr = nil
 	return func() tea.Msg {
 		return tokenCheckedMsg{token: token, source: source, err: api.CheckToken(token)}
@@ -347,7 +344,7 @@ func (m *Model) checkToken(token string, source tokenSource) tea.Cmd {
 // only touched by the message the command sends back.
 func (m *Model) startDevice() tea.Cmd {
 	m.busy = true
-	m.busyText = "Asking Yandex for a code..."
+	m.busyText = "Запрашиваю код у Яндекса…"
 	m.uiErr = nil
 	m.device = nil
 	return func() tea.Msg {
@@ -367,7 +364,7 @@ func (m *Model) startDevice() tea.Cmd {
 
 // waitToken polls the token endpoint while the user confirms the code.
 func (m *Model) waitToken(code *oauth.DeviceCode) tea.Cmd {
-	m.busyText = "Waiting for the browser..."
+	m.busyText = "Жду подтверждения в браузере…"
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), oauthTimeout)
 		defer cancel()

@@ -366,7 +366,7 @@ func (m *Model) view() (string, *Regions) {
 	}
 
 	if m.showError && !config.Current.SuppressErrors {
-		errText := "Error: " + m.errorText + "; -> " + log.Location()
+		errText := "Ошибка: " + m.errorText
 		maxLen := m.Width() - 4
 		if lipgloss.Width(errText) > maxLen {
 			errText = lipgloss.NewStyle().MaxWidth(maxLen-1).Render(errText) + "…"
@@ -891,6 +891,9 @@ func (m *Model) Playtime() time.Duration {
 }
 
 func (m *Model) ShowError(text string) {
+	if human, ok := errorTexts[text]; ok {
+		text = human
+	}
 	m.showError = true
 	m.errorText = text
 }

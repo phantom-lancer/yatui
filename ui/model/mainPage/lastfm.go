@@ -198,6 +198,31 @@ var lastfmClient = func(apiKey, apiSecret, sessionKey string) scrobbler {
 	return lastfm.New(apiKey, apiSecret, sessionKey)
 }
 
+// lastfmFlushedMsg reports how many queued reports just reached Last.fm.
+type lastfmFlushedMsg struct {
+	count int
+}
+
+// flushScrobbles sends the reports that were kept while the connection was
+// down. It runs in the background and never touches the player.
+func (m *Model) flushScrobbles(client scrobbler) {
+	if m.scrobbles == nil || m.scrobbles.Len() == 0 {
+		return
+	}
+	if !atomic.CompareAndSwapInt32(&m.scrobbleFlushing, 0, 1) {
+		return
+	}
+	defer atomic.StoreInt32(&m.scrobbleFlushing, 0)
+
+	sent := m.scrobbles.Flush(func(s lastfm.Scrobble) error {
+		return client.Scrobble(s.Artist, s.Title, s.Album, s.Timestamp, s.Duration)
+	})
+	if sent > 0 {
+		log.Print(log.LVL_INFO, "lastfm: sent %d queued scrobbles", sent)
+		m.Send(lastfmFlushedMsg{count: sent})
+	}
+}
+
 // scrobbleStart reports the now playing track and schedules the scrobble.
 // The timer is a plain sleeping goroutine, so an idle player schedules
 // nothing at all.
@@ -225,7 +250,11 @@ func (m *Model) scrobbleStart(track *api.Track) {
 	go func() {
 		if err := client.NowPlaying(artist, title, album, duration); err != nil {
 			log.Print(log.LVL_WARNIGN, "lastfm now playing: %s", err)
+			return
 		}
+		// the connection is up again: the reports kept from the offline time
+		// can finally go out
+		m.flushScrobbles(client)
 	}()
 
 	if track.DurationMs <= 0 || track.DurationMs < int(scrobbleMinDuration/time.Millisecond) {
@@ -244,6 +273,19 @@ func (m *Model) scrobbleStart(track *api.Track) {
 		}
 		if err := client.Scrobble(artist, title, album, scrobbledAt, duration); err != nil {
 			log.Print(log.LVL_WARNIGN, "lastfm scrobble: %s", err)
+			// Last.fm is out of reach (the VPN is off, for example): the
+			// report is kept and sent when the connection is back. A report
+			// that the service refused for good is not kept.
+			if !lastfm.Permanent(err) && m.scrobbles != nil {
+				m.scrobbles.Add(lastfm.Scrobble{
+					Artist:    artist,
+					Title:     title,
+					Album:     album,
+					Timestamp: scrobbledAt,
+					Duration:  duration,
+				})
+				log.Print(log.LVL_INFO, "lastfm: scrobble queued")
+			}
 		}
 	}()
 }

@@ -119,10 +119,42 @@ func (c *Client) call(method string, params map[string]string) (map[string]inter
 	}
 
 	if message, ok := payload["error"]; ok {
-		return nil, fmt.Errorf("lastfm: %v", message)
+		code, _ := message.(float64)
+		text, _ := payload["message"].(string)
+		return nil, &Error{Code: int(code), Message: text}
 	}
 
 	return payload, nil
+}
+
+// Error is an error returned by Last.fm together with its numeric code.
+type Error struct {
+	Code    int
+	Message string
+}
+
+func (e *Error) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("lastfm: error %d", e.Code)
+	}
+	return fmt.Sprintf("lastfm: %d: %s", e.Code, e.Message)
+}
+
+// Permanent reports whether trying the request again later cannot help: the
+// session or the API key was refused. Everything else, network failures above
+// all, is worth another try when the connection is back.
+func Permanent(err error) bool {
+	var apiErr *Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.Code {
+	case 4, 9, 10, 13, 26:
+		// authentication failed, invalid session key, invalid API key,
+		// invalid method signature, suspended API key
+		return true
+	}
+	return false
 }
 
 // NowPlaying reports the track that just started.

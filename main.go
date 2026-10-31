@@ -16,7 +16,12 @@ import (
 )
 
 func main() {
-	forceLogin, showVersion := parseArgs(os.Args[1:])
+	args := os.Args[1:]
+	forceLogin, showVersion := parseArgs(args)
+	if hasHelpArg(args) {
+		printUsage()
+		return
+	}
 	if showVersion {
 		fmt.Println("yatui " + mainpage.Version)
 		return
@@ -87,4 +92,28 @@ func parseArgs(args []string) (forceLogin, showVersion bool) {
 		}
 	}
 	return forceLogin, showVersion
+}
+
+// hasHelpArg reports whether the usage was asked for.
+func hasHelpArg(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-help", "-h", "help":
+			return true
+		}
+	}
+	return false
+}
+
+// printUsage prints the command line help.
+func printUsage() {
+	fmt.Println(`yatui — клиент Яндекс.Музыки в терминале
+
+Использование:
+  yatui [флаги]
+
+Флаги:
+  --login     показать экран входа, даже если токен уже сохранён
+  --version   показать версию и выйти
+  --help      показать эту справку`)
 }

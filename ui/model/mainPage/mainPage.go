@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -8,7 +9,9 @@ import (
 	"time"
 
 	"github.com/phantom-lancer/yatui/api"
+	"github.com/phantom-lancer/yatui/cache"
 	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/lastfm"
 	"github.com/phantom-lancer/yatui/media/handler"
 	"github.com/phantom-lancer/yatui/ui/components/input"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
@@ -110,6 +113,13 @@ type Model struct {
 	// when there are too many of them
 	failedTracks int
 
+	// scrobbles keeps the Last.fm reports that could not be sent, e.g. while
+	// the VPN is off; they go out when the connection is back
+	scrobbles *lastfm.Queue
+	// scrobbleFlushing guards the queue flush, so a track start does not
+	// begin a second one
+	scrobbleFlushing int32
+
 	// playGeneration grows with every track start: the download that is
 	// still on its way from a previous track is dropped when the number no
 	// longer matches, so a slow download cannot replace a newer track.
@@ -168,6 +178,10 @@ func New(mediaHandler handler.MediaHandler) *Model {
 	m.dislikedTracksMap = make(map[string]bool)
 	m.cachedTracksMap = make(map[string]bool)
 	m.downloadingTracks = make(map[string]bool)
+	// the reports kept while the network was down survive a restart
+	if dir, err := cache.Dir(); err == nil {
+		m.scrobbles = lastfm.NewQueue(filepath.Join(dir, "lastfm-scrobbles.json"))
+	}
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.Points))
 	m.playlists = playlist.New(m.program, "YaMusic")
 	m.tracklist = tracklist.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap, &m.cachedTracksMap)
@@ -412,6 +426,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackDownloadedMsg:
 		return m, m.applyDownloadedTrack(msg)
+
+	case lastfmFlushedMsg:
+		if msg.count > 0 {
+			m.showToast(fmt.Sprintf("Last.fm: отправлено %d", msg.count))
+		}
+		return m, nil
 
 	case waveStationsMsg:
 		if m.wave != nil {

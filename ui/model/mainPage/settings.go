@@ -517,18 +517,6 @@ func (m *Model) buildSettings() []settingItem {
 		},
 		m.discordSettingItem(),
 		{
-			label: "Подавлять ошибки",
-			kind:  settingBool,
-			value: func() string {
-				return onOff(config.Current.SuppressErrors)
-			},
-			apply: func(dir int) tea.Cmd {
-				config.Current.SuppressErrors = !config.Current.SuppressErrors
-				m.saveConfig()
-				return nil
-			},
-		},
-		{
 			label: "Конфиг",
 			kind:  settingInfo,
 			value: func() string {

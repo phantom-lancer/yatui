@@ -15,11 +15,11 @@ func newHelpMap() *helpKeyMap {
 	return &helpKeyMap{
 		apply: key.NewBinding(
 			controls.Apply.Binding(),
-			controls.Apply.Help("login"),
+			controls.Apply.Help("войти"),
 		),
 		quit: key.NewBinding(
 			controls.Quit.Binding(),
-			controls.Quit.Help("quit"),
+			controls.Quit.Help("выход"),
 		),
 	}
 }
