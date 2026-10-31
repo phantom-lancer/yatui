@@ -27,6 +27,9 @@ func main() {
 		return
 	}
 
+	// the sign stays in the console when the player is closed
+	defer printGoodbye()
+
 	log.Start()
 	defer log.Stop()
 

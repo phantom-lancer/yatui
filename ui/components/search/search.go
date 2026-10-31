@@ -66,11 +66,11 @@ type searchRow struct {
 func New() *Model {
 	m := &Model{
 		additionalKeyBindigs: []key.Binding{
-			key.NewBinding(config.Current.Controls.Apply.Binding(), config.Current.Controls.Apply.Help("search")),
-			key.NewBinding(config.Current.Controls.Cancel.Binding(), config.Current.Controls.Cancel.Help("cancel")),
+			key.NewBinding(config.Current.Controls.Apply.Binding(), config.Current.Controls.Apply.Help("искать")),
+			key.NewBinding(config.Current.Controls.Cancel.Binding(), config.Current.Controls.Cancel.Help("отмена")),
 		},
-		Title:  "Search",
-		Action: "search",
+		Title:  "Поиск",
+		Action: "искать",
 	}
 
 	controls := config.Current.Controls
@@ -79,8 +79,8 @@ func New() *Model {
 	m.list.SetShowTitle(false)
 	m.list.DisableQuitKeybindings()
 	m.list.KeyMap = list.KeyMap{
-		CursorUp:   key.NewBinding(controls.CursorUp.Binding(), controls.CursorUp.Help("up")),
-		CursorDown: key.NewBinding(controls.CursorDown.Binding(), controls.CursorDown.Help("down")),
+		CursorUp:   key.NewBinding(controls.CursorUp.Binding(), controls.CursorUp.Help("вверх")),
+		CursorDown: key.NewBinding(controls.CursorDown.Binding(), controls.CursorDown.Help("вниз")),
 	}
 	m.list.AdditionalShortHelpKeys = m.keymap
 

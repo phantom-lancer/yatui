@@ -682,7 +682,7 @@ func (m *Model) openContextMenu(trackIdx, x, y int) {
 		{label: "Радио по треку", action: func(m *Model) tea.Cmd { return m.playRadioByTrack(track) }},
 		{label: "В плейлист", action: func(m *Model) tea.Cmd {
 			m.searchDialog.Title = "Добавить " + track.Title + " в"
-			m.searchDialog.Action = "add"
+			m.searchDialog.Action = "добавить"
 			m.isAddPlaylistActive = true
 			m.Send(search.UPDATE_SUGGESTIONS)
 			return nil

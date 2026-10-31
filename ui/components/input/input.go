@@ -33,7 +33,7 @@ func New() *Model {
 		input:    textinput.New(),
 		help:     help.New(),
 		helpKeys: newHelpMap(),
-		Action:   "apply",
+		Action:   "применить",
 	}
 	m.input.Focus()
 	return m

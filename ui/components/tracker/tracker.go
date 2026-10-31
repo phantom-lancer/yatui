@@ -964,7 +964,7 @@ func (m *Model) renderLyrics() string {
 				}
 			}
 		case false:
-			currentLine = "This song doesn't have synced lyrics!"
+			currentLine = "У этой песни нет синхронизированного текста"
 		}
 	}
 

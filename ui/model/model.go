@@ -19,7 +19,7 @@ func PrettyExit(err error, code int) {
 	fmt.Println()
 
 	if err != nil {
-		errMsg := style.ErrorTextStyle.Render("Error:")
+		errMsg := style.ErrorTextStyle.Render("Ошибка:")
 		fmt.Println(errMsg, err, "")
 	}
 

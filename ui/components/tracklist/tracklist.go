@@ -54,7 +54,7 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 		program:   p,
 		help:      help.New(),
 		helpMap:   newHelpMap(),
-		Title:     "Tracks",
+		Title:     "Треки",
 		dragIndex: -1,
 		dragStart: -1,
 	}
@@ -64,10 +64,10 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.list = list.New([]list.Item{}, ItemDelegate{likesMap: likesMap, dislikesMap: dislikesMap, cacheMap: cacheMap, layout: &m.layout}, 512, 512)
 	m.list.Styles.Title = style.TrackListTitleStyle
 	m.list.KeyMap = list.KeyMap{
-		CursorUp:   key.NewBinding(controls.CursorUp.Binding(), controls.CursorUp.Help("up")),
-		CursorDown: key.NewBinding(controls.CursorDown.Binding(), controls.CursorDown.Help("down")),
-		NextPage:   key.NewBinding(controls.TracksPrevPage.Binding(), controls.TracksPrevPage.Help("next page")),
-		PrevPage:   key.NewBinding(controls.TracksNextPage.Binding(), controls.TracksNextPage.Help("prev page")),
+		CursorUp:   key.NewBinding(controls.CursorUp.Binding(), controls.CursorUp.Help("вверх")),
+		CursorDown: key.NewBinding(controls.CursorDown.Binding(), controls.CursorDown.Help("вниз")),
+		NextPage:   key.NewBinding(controls.TracksPrevPage.Binding(), controls.TracksPrevPage.Help("след. страница")),
+		PrevPage:   key.NewBinding(controls.TracksNextPage.Binding(), controls.TracksNextPage.Help("пред. страница")),
 	}
 	m.list.Paginator.KeyMap.NextPage.SetEnabled(false)
 	m.list.Paginator.KeyMap.PrevPage.SetEnabled(false)

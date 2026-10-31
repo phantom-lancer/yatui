@@ -40,7 +40,7 @@ func (m *Model) openGlobalSearch() tea.Cmd {
 	}
 	m.trackSearch = nil
 	m.searchDialog.Title = "Поиск в Яндексе"
-	m.searchDialog.Action = "search"
+	m.searchDialog.Action = "искать"
 	m.isSearchActive = true
 	m.Send(search.UPDATE_SUGGESTIONS)
 	return tea.ClearScreen

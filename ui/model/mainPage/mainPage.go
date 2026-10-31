@@ -546,7 +546,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if selectedPlaylist.Kind < playlist.USER {
 				break
 			}
-			m.inputDialog.Title = "Rename playlist " + selectedPlaylist.Name
+			m.inputDialog.Title = "Переименовать плейлист " + selectedPlaylist.Name
 			m.inputDialog.SetValue(selectedPlaylist.Name)
 			m.isRenamePlaylistActive = true
 		case playlist.TOGGLE_VIEW:
@@ -602,8 +602,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			selectedTrack := m.tracklist.SelectedItem()
-			m.searchDialog.Title = "Add " + selectedTrack.Track.Title + " to"
-			m.searchDialog.Action = "add"
+			m.searchDialog.Title = "Добавить " + selectedTrack.Track.Title + " в"
+			m.searchDialog.Action = "добавить"
 			m.isAddPlaylistActive = true
 			m.Send(search.UPDATE_SUGGESTIONS)
 		case tracklist.REMOVE_FROM_PLAYLIST:
@@ -611,8 +611,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.removeFromPlaylist(selectedPlaylist, m.playlistTrackIndex(m.tracklist.Index()))
 			cmds = append(cmds, cmd)
 		case tracklist.SEARCH:
-			m.searchDialog.Title = "Search"
-			m.searchDialog.Action = "search"
+			m.searchDialog.Title = "Поиск"
+			m.searchDialog.Action = "искать"
 			m.isSearchActive = true
 			m.Send(search.UPDATE_SUGGESTIONS)
 		case tracklist.SHUFFLE:

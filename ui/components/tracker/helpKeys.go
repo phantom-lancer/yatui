@@ -27,51 +27,51 @@ func newHelpMap() *helpKeyMap {
 	return &helpKeyMap{
 		PlayPause: key.NewBinding(
 			controls.PlayerPause.Binding(),
-			controls.PlayerPause.Help("play/pause"),
+			controls.PlayerPause.Help("играть/пауза"),
 		),
 		Stop: key.NewBinding(
 			controls.PlayerStop.Binding(),
-			controls.PlayerStop.Help("play/pause"),
+			controls.PlayerStop.Help("играть/пауза"),
 		),
 		PrevTrack: key.NewBinding(
 			controls.PlayerPrevious.Binding(),
-			controls.PlayerPrevious.Help("previous track"),
+			controls.PlayerPrevious.Help("предыдущий трек"),
 		),
 		NextTrack: key.NewBinding(
 			controls.PlayerNext.Binding(),
-			controls.PlayerNext.Help("next track"),
+			controls.PlayerNext.Help("следующий трек"),
 		),
 		LikeUnlike: key.NewBinding(
 			controls.PlayerLike.Binding(),
-			controls.PlayerLike.Help("like/unlike"),
+			controls.PlayerLike.Help("нравится"),
 		),
 		CacheTrack: key.NewBinding(
 			controls.PlayerCache.Binding(),
-			controls.PlayerCache.Help("cache track"),
+			controls.PlayerCache.Help("кэшировать"),
 		),
 		Backward: key.NewBinding(
 			controls.PlayerRewindBackward.Binding(),
-			controls.PlayerRewindBackward.Help(fmt.Sprintf("-%d sec", int(config.Current.RewindDuration))),
+			controls.PlayerRewindBackward.Help(fmt.Sprintf("−%d с", int(config.Current.RewindDuration))),
 		),
 		Forward: key.NewBinding(
 			controls.PlayerRewindForward.Binding(),
-			controls.PlayerRewindForward.Help("next track"),
+			controls.PlayerRewindForward.Help(fmt.Sprintf("+%d с", int(config.Current.RewindDuration))),
 		),
 		VolUp: key.NewBinding(
 			controls.PlayerVolUp.Binding(),
-			controls.PlayerVolUp.Help("vol up"),
+			controls.PlayerVolUp.Help("громче"),
 		),
 		VolDown: key.NewBinding(
 			controls.PlayerVolDown.Binding(),
-			controls.PlayerVolDown.Help("vol down"),
+			controls.PlayerVolDown.Help("тише"),
 		),
 		ToggleLyrics: key.NewBinding(
 			controls.PlayerToggleLyrics.Binding(),
-			controls.PlayerToggleLyrics.Help("lyrics"),
+			controls.PlayerToggleLyrics.Help("текст"),
 		),
 		HidePlayer: key.NewBinding(
 			controls.PlayerHide.Binding(),
-			controls.PlayerHide.Help("hide"),
+			controls.PlayerHide.Help("скрыть"),
 		),
 	}
 }

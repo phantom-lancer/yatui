@@ -17,11 +17,11 @@ func newHelpMap() *helpKeyMap {
 	return &helpKeyMap{
 		apply: key.NewBinding(
 			controls.Apply.Binding(),
-			controls.Apply.Help("apply"),
+			controls.Apply.Help("применить"),
 		),
 		cancel: key.NewBinding(
 			controls.Cancel.Binding(),
-			controls.Cancel.Help("cancel"),
+			controls.Cancel.Help("отмена"),
 		),
 	}
 }

@@ -325,31 +325,31 @@ func (m *Model) displayPlaylist(pl *playlist.Item) {
 
 	switch pl.Kind {
 	case playlist.MYWAVE:
-		m.tracklist.Title = "My wave"
+		m.tracklist.Title = "Моя волна"
 		// the active settings of the wave are shown right next to its name
 		if summary := waveSettingsSummary(); summary != "" {
 			m.tracklist.Title += " · " + summary
 		}
 	case playlist.LIKES:
-		m.tracklist.Title = "Liked tracks"
+		m.tracklist.Title = "Любимые треки"
 	case playlist.LOCAL:
-		m.tracklist.Title = "Cached tracks"
+		m.tracklist.Title = "Локальные"
 	case playlist.ALBUMS:
 		if pl.SelectedAlbum >= 0 {
 			album := pl.Albums[pl.SelectedAlbum]
 			title := style.TrackTitleStyle.Render(album.Title)
 			artists := style.TrackArtistStyle.Render(" (" + helpers.ArtistList(album.Artists) + ")")
-			m.tracklist.Title = "Tracks from " + title + artists
+			m.tracklist.Title = "Треки из " + title + artists
 		} else {
 			if pl.Name == "albums" {
-				m.tracklist.Title = "Liked albums"
+				m.tracklist.Title = "Любимые альбомы"
 			} else {
 				m.tracklist.Title = pl.Name
 			}
 		}
 	default:
 		title := style.TrackTitleStyle.Render(pl.Name)
-		m.tracklist.Title = "Tracks from " + title
+		m.tracklist.Title = "Треки из " + title
 	}
 }
 
