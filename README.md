@@ -7,7 +7,8 @@
 Яндекс Музыка в терминале: воспроизведение, «Моя волна», плейлисты, поиск,
 эквалайзер, Discord RPC и Last.fm. Windows, Linux, macOS.
 
-![Uploading image.png…]()
+<img width="1115" height="704" alt="image" src="https://github.com/user-attachments/assets/531dd13b-51b8-4fa9-9a28-7134ea7315ff" />
+
 
 
 ## Возможности
