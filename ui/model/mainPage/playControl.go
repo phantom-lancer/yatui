@@ -339,6 +339,10 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 
 	trackBuffer := stream.NewBufferedStream(trackReader, trackSize)
 	m.writeTrackMetadata(track, trackBuffer, trackFromCache, coverType, coverBytes)
+	// the loudness is measured here, in the background, instead of on the
+	// audio thread: it decodes ten seconds of audio and used to freeze the
+	// window on every track switch
+	tracker.MeasureTrack(trackBuffer, track)
 	m.Send(trackReadyMsg{
 		generation: generation,
 		track:      track,

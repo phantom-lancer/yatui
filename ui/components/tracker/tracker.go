@@ -519,7 +519,7 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 			if m.player == nil {
 				break
 			}
-			if m.player.IsPlaying() {
+			if m.IsPlaying() {
 				m.Pause()
 				cmds = append(cmds, model.Cmd(PAUSE))
 			} else {
@@ -782,7 +782,10 @@ func (m *Model) Stop() {
 }
 
 func (m *Model) IsPlaying() bool {
-	return m.player != nil && m.trackWrapper.trackBuffer != nil && m.player.IsPlaying() && !m.paused
+	// the state is tracked by the model instead of asking the audio player:
+	// the player may be busy reading the stream, and the UI must not wait
+	// for it
+	return m.player != nil && m.trackWrapper != nil && m.trackWrapper.trackBuffer != nil && !m.paused
 }
 
 // Paused reports whether the playback is paused.
@@ -802,7 +805,7 @@ func (m *Model) Play() {
 	if m.player == nil || m.trackWrapper.trackBuffer == nil {
 		return
 	}
-	if m.player.IsPlaying() {
+	if !m.paused {
 		return
 	}
 	m.volume = config.Current.Volume
@@ -813,15 +816,20 @@ func (m *Model) Play() {
 	m.playStarted = time.Now()
 }
 
+// Pause stops the playback right away. The volume fade cannot decide whether
+// the pause happens: at zero volume there is nothing to fade, and relying on
+// the fade stopped the playback only sometimes.
 func (m *Model) Pause() {
-	if m.player == nil || m.trackWrapper.trackBuffer == nil {
+	if m.player == nil || m.trackWrapper == nil || m.trackWrapper.trackBuffer == nil {
 		return
 	}
-	if !m.player.IsPlaying() {
+	if m.paused {
 		return
 	}
 	m.playtime += time.Since(m.playStarted)
 	m.paused = true
+	m.player.SetVolume(0)
+	m.player.Pause()
 }
 
 func (m *Model) Rewind(amount time.Duration) tea.Cmd {
@@ -908,26 +916,16 @@ func (m *Model) dynamicVolumeStep() float64 {
 }
 
 func (m *Model) volumeFadeTick() {
-	if m.player == nil || !m.player.IsPlaying() {
+	if m.player == nil || m.paused || !m.player.IsPlaying() {
 		return
 	}
 
 	if m.volumeIncremet == 0 {
 		m.player.SetVolume(0)
-		// at zero volume the fade has nothing to do, but the pause still
-		// has to reach the player: otherwise the track keeps running
-		if m.paused {
-			m.player.Pause()
-		}
 		return
 	}
 
-	var targetVolume float64
-	if m.paused {
-		targetVolume = 0
-	} else {
-		targetVolume = m.volume
-	}
+	targetVolume := m.volume
 
 	currVol := m.player.Volume()
 	if currVol >= targetVolume+m.volumeIncremet {
@@ -936,9 +934,6 @@ func (m *Model) volumeFadeTick() {
 		m.player.SetVolume(currVol + m.volumeIncremet/2)
 	} else if currVol != targetVolume {
 		m.player.SetVolume(targetVolume)
-		if m.paused {
-			m.player.Pause()
-		}
 	}
 }
 

@@ -103,27 +103,7 @@ func (w *readWrapper) measureLoudness() {
 		return
 	}
 
-	meter := newLoudnessMeter(w.decoder.SampleRate())
-	bytesPerSecond := meter.sampleRate * 4
-	buffer := make([]byte, 32*1024)
-	wanted := bytesPerSecond * _LOUDNESS_ANALYSIS_SECONDS
-	// the quick measurement reads the first second only: cheap, and close
-	// enough thanks to the per-track correction measured while playing
-	if config.Current.Normalization != nil && config.Current.Normalization.Fast {
-		wanted = bytesPerSecond
-	}
-	read := 0
-
-	for read < wanted {
-		n, err := w.decoder.Read(buffer)
-		if n > 0 {
-			meter.add(buffer[:n])
-			read += n
-		}
-		if err != nil {
-			break
-		}
-	}
+	meter, _ := analyzeHead(w.decoder, w.trackTitle)
 
 	// the analysis has consumed the head of the stream: put it back and start
 	// decoding from the very first frame again
@@ -141,13 +121,80 @@ func (w *readWrapper) measureLoudness() {
 
 	w.normalization = meter.normalization()
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
+}
+
+// analyzeHead decodes the head of a track and returns the meter with the
+// measured loudness and the number of seconds it covers. The stream is left
+// right after the decoded part.
+func analyzeHead(decoder *mp3.Decoder, title string) (*loudnessMeter, int) {
+	meter := newLoudnessMeter(decoder.SampleRate())
+	bytesPerSecond := meter.sampleRate * 4
+	buffer := make([]byte, 32*1024)
+	wanted := bytesPerSecond * _LOUDNESS_ANALYSIS_SECONDS
+	// the quick measurement reads the first second only: cheap, and close
+	// enough thanks to the per-track correction measured while playing
+	if config.Current.Normalization != nil && config.Current.Normalization.Fast {
+		wanted = bytesPerSecond
+	}
+	read := 0
+
+	for read < wanted {
+		n, err := decoder.Read(buffer)
+		if n > 0 {
+			meter.add(buffer[:n])
+			read += n
+		}
+		if err != nil {
+			break
+		}
+	}
 
 	seconds := read / bytesPerSecond
 	if loudness := meter.integratedLoudness(); math.IsInf(loudness, -1) {
-		log.Print(log.LVL_INFO, "normalization: track '%s' is silent, played as is", w.trackTitle)
+		log.Print(log.LVL_INFO, "normalization: track '%s' is silent, played as is", title)
 	} else {
 		log.Print(log.LVL_INFO, "normalization: track '%s' %.1f LUFS in the first %d s (peak %.2f), gain %+.1f dB",
-			w.trackTitle, loudness, seconds, meter.peak, w.normalization.gainDB())
+			title, loudness, seconds, meter.peak, meter.normalization().gainDB())
+	}
+
+	return meter, seconds
+}
+
+// MeasureTrack measures the loudness of the head of a track and remembers it
+// before the track reaches the player. It runs in the download goroutine: the
+// first play of a track used to decode ten seconds of audio on the audio
+// thread, which froze the window for seconds when the track was switched.
+func MeasureTrack(reader *stream.BufferedStream, track *api.Track) {
+	if reader == nil || track == nil {
+		return
+	}
+	if _, pending := newNormalization(track); !pending {
+		return
+	}
+	if _, ok := lookupLoudness(track.Id); ok {
+		return
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return
+	}
+
+	decoder, err := mp3.NewDecoder(reader)
+	if err != nil {
+		log.Print(log.LVL_WARNIGN, "normalization: unable to decode track '%s': %s", track.Title, err)
+		return
+	}
+
+	meter, _ := analyzeHead(decoder, track.Title)
+
+	// the analysis has consumed the head of the stream: the player starts
+	// from the very first frame again
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		log.Print(log.LVL_WARNIGN, "normalization: unable to rewind track '%s': %s", track.Title, err)
+		return
+	}
+
+	if loudness := meter.integratedLoudness(); !math.IsInf(loudness, -1) {
+		storeLoudness(track.Id, loudnessEntry{Loudness: loudness, Peak: meter.peak})
 	}
 }
 
