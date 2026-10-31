@@ -62,7 +62,7 @@ func buildLabel() string {
 	}
 	if date != "" {
 		if built, err := time.Parse(time.RFC3339, date); err == nil {
-			label += " · " + built.Format("2006-01-02")
+			label += " · " + built.Local().Format("2006-01-02")
 		}
 	}
 
