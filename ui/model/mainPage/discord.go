@@ -104,17 +104,8 @@ func discordClearAsync() {
 // discordConfig returns the Discord settings, creating defaults on first use.
 func discordConfig() *config.Discord {
 	if config.Current.Discord == nil {
-		config.Current.Discord = &config.Discord{
-			Enabled:       true,
-			StatusType:    0,
-			Language:      "en",
-			ShowAlbum:     true,
-			ShowVersion:   true,
-			ShowSmallIcon: true,
-			ShowButtons:   false,
-			AfkTimeout:    15,
-			ShowBranding:  true,
-		}
+		defaults := config.DefaultDiscord()
+		config.Current.Discord = &defaults
 	}
 	return config.Current.Discord
 }

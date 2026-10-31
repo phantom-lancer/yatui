@@ -161,6 +161,9 @@ func New(mediaHandler handler.MediaHandler) *Model {
 	m.playlists = playlist.New(m.program, "YaMusic")
 	m.tracklist = tracklist.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap, &m.cachedTracksMap)
 	m.tracker = tracker.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap)
+	// the equalizer of the config must reach the player before the first
+	// track, otherwise it is flat until the window is opened
+	m.applySavedEQ()
 	m.searchDialog = search.New()
 	m.inputDialog = input.New()
 

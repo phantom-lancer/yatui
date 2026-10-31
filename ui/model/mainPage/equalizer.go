@@ -79,16 +79,30 @@ type eqModel struct {
 	layout   eqLayout
 }
 
-// openEqualizer shows the window with the equalizer.
+// openEqualizer shows the window with the equalizer. The settings come from
+// the config, not from the player, so the window always shows what was saved.
 func (m *Model) openEqualizer() tea.Cmd {
-	enabled, gains := m.tracker.EQ()
+	eqCfg := config.Current.Equalizer
+	if eqCfg == nil {
+		eqCfg = &config.Equalizer{}
+	}
 	m.eq = &eqModel{
-		enabled: enabled,
-		preset:  config.Current.Equalizer.Preset,
-		gains:   gains,
+		enabled: eqCfg.Enabled,
+		preset:  eqCfg.Preset,
+		gains:   equalizer.NormalizeGains(eqCfg.Gains),
 		index:   -1,
 	}
 	return tea.ClearScreen
+}
+
+// applySavedEQ pushes the saved settings to the player: without it the
+// equalizer was flat after every restart, and the window showed nothing.
+func (m *Model) applySavedEQ() {
+	eqCfg := config.Current.Equalizer
+	if eqCfg == nil || m.tracker == nil {
+		return
+	}
+	m.tracker.SetEQ(eqCfg.Enabled, equalizer.NormalizeGains(eqCfg.Gains))
 }
 
 // toggleEqualizer switches the equalizer on or off.

@@ -247,15 +247,15 @@ var defaultConfig = Config{
 	},
 	Discord: &Discord{
 		Enabled:       true,
-		StatusType:    0,
+		StatusType:    1,
 		Language:      "en",
-		ShowAlbum:     true,
-		ShowVersion:   true,
-		ShowSmallIcon: true,
+		ShowAlbum:     false,
+		ShowVersion:   false,
+		ShowSmallIcon: false,
 		ShowButtons:   false,
 		MergeLinks:    false,
-		AfkTimeout:    15,
-		ShowBranding:  true,
+		AfkTimeout:    5,
+		ShowBranding:  false,
 	},
 	Wave: &Wave{},
 	Equalizer: &Equalizer{
@@ -343,6 +343,22 @@ var defaultConfig = Config{
 			LyricsNext:        "#777",
 		},
 	},
+}
+
+// legacyDiscord is what the versions before the Discord card was tuned wrote
+// into a config. A config that still has exactly these values was never
+// changed by the user, so load() replaces it with the current defaults.
+var legacyDiscord = Discord{
+	Enabled:       true,
+	StatusType:    0,
+	Language:      "en",
+	ShowAlbum:     true,
+	ShowVersion:   true,
+	ShowSmallIcon: true,
+	ShowButtons:   false,
+	MergeLinks:    false,
+	AfkTimeout:    15,
+	ShowBranding:  true,
 }
 
 // DirName is the name of the config, cache and log directories. It has been

@@ -90,6 +90,14 @@ func load() (Config, error) {
 		newConfig.Wave = &wave
 	}
 
+	// A config written by the older versions carries the old Discord defaults;
+	// such a config was never tuned by the user, so it gets the new defaults
+	// once. Edited values are kept.
+	if newConfig.Discord == nil || *newConfig.Discord == legacyDiscord {
+		discord := *defaultConfig.Discord
+		newConfig.Discord = &discord
+	}
+
 	if newConfig.Equalizer == nil {
 		equalizer := *defaultConfig.Equalizer
 		newConfig.Equalizer = &equalizer
@@ -175,6 +183,11 @@ func save(conf Config) error {
 	}
 
 	return nil
+}
+
+// DefaultDiscord returns the Discord settings of a fresh config.
+func DefaultDiscord() Discord {
+	return *defaultConfig.Discord
 }
 
 func Path() string {
