@@ -97,11 +97,46 @@ func proccessRequest[RetT any](req *http.Request) (result RetT, invInfo InvocInf
 		dec.Decode(&respBody)
 		err = respBody
 		invInfo.ReqId = respBody.RequestId
+	case http.StatusForbidden:
+		// the token is valid, but this app has no access to the Music API
+		err = ErrTokenRejected
 	default:
 		err = fmt.Errorf("unhandled status %s", resp.Status)
 	}
 
 	return
+}
+
+// ErrTokenRejected means Yandex answered the API with 401 or 403: the token
+// itself is valid, but this app has no access to the Music API.
+var ErrTokenRejected = errors.New("the token has no access to the Yandex Music API")
+
+// CheckToken asks the API for the account of the token. The login page uses
+// it, so a token that cannot play music never replaces a working one.
+func CheckToken(token string) error {
+	req, err := http.NewRequest(http.MethodGet, YaMusicServerURL+"account/status", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("Authorization", "OAuth "+token)
+	req.Header.Add("x-Yandex-Music-Client", "YandexMusicAndroid/24024312")
+	req.Header.Add("User-Agent", "okhttp/4.12.0")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return ErrTokenRejected
+	default:
+		return fmt.Errorf("unexpected status %s", resp.Status)
+	}
 }
 
 func getRequest[RetT any](token, reqPath string, params url.Values) (result RetT, invInfo InvocInfo, err error) {

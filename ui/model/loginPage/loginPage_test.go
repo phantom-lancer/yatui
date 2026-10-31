@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
 )
 
@@ -40,7 +41,7 @@ func TestEmptyFieldStartsTheBrowser(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("the empty form must start the browser authorization")
 	}
-	if !m.oauthRunning {
+	if !m.busy {
 		t.Fatal("the screen must show that the browser is waiting")
 	}
 	// the command itself is not run: it would open a browser
@@ -83,17 +84,60 @@ func TestButtonIsClickable(t *testing.T) {
 	}
 }
 
+// TestHoverHighlightsTheButton checks that the button reacts to the mouse: it
+// is lit under the pointer and is drawn in the active style.
+func TestHoverHighlightsTheButton(t *testing.T) {
+	m := loginModel()
+	m.View()
+
+	m.observeHover(tea.MouseMsg{Action: tea.MouseActionMotion, X: m.buttonX + 1, Y: m.buttonY})
+	if !m.hover {
+		t.Fatal("the button must react when the mouse is over it")
+	}
+
+	m.observeHover(tea.MouseMsg{Action: tea.MouseActionMotion, X: m.buttonX, Y: m.buttonY - 2})
+	if m.hover {
+		t.Fatal("the button must not react when the mouse is away")
+	}
+}
+
+// TestRejectedTokenIsNotSaved checks that a token without access to the Music
+// API never replaces the working one.
+func TestRejectedTokenIsNotSaved(t *testing.T) {
+	m := loginModel()
+	saved := config.Current.Token
+	t.Cleanup(func() { config.Current.Token = saved })
+
+	config.Current.Token = "old-token"
+	m.busy = true
+	m.Update(tokenCheckedMsg{
+		token:  "bad-token",
+		source: sourcePaste,
+		err:    api.ErrTokenRejected,
+	})
+
+	if config.Current.Token != "old-token" {
+		t.Fatalf("the rejected token was saved: %q", config.Current.Token)
+	}
+	if m.uiErr == nil {
+		t.Fatal("the refusal must be shown")
+	}
+	if m.busy {
+		t.Fatal("the check must end")
+	}
+}
+
 // TestOauthAnswerResumesTheScreen checks that a finished authorization stops
 // the waiting state.
 func TestOauthAnswerResumesTheScreen(t *testing.T) {
 	m := loginModel()
-	m.oauthRunning = true
+	m.busy = true
 
 	m.Update(oauthDoneMsg{err: errTest{}})
-	if m.oauthRunning {
+	if m.busy {
 		t.Fatal("the waiting state must end after an error")
 	}
-	if m.oauthErr == nil {
+	if m.uiErr == nil {
 		t.Fatal("the error must be shown")
 	}
 }

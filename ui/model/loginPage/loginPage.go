@@ -2,9 +2,11 @@ package loginpage
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
+	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/oauth"
 	"github.com/phantom-lancer/yatui/ui/model/hotkeys"
@@ -26,12 +28,18 @@ type Model struct {
 	help    help.Model
 	helpMap *helpKeyMap
 
-	// oauthRunning is set while the browser authorization is in progress:
-	// the input and the button are locked until the answer arrives.
-	oauthRunning bool
-	oauthErr     error
+	// busy is set while the browser authorization runs or the token is being
+	// checked: the input and the button are locked until the answer arrives.
+	busy     bool
+	busyText string
+	uiErr    error
 
-	// the button is placed by the view, so a click can be matched to it
+	// hover is set while the mouse is over the button, so it reacts like a
+	// button of the main page
+	hover bool
+
+	// the button is placed by the view, so a click and a hover can be matched
+	// to it
 	buttonX, buttonY, buttonW int
 }
 
@@ -42,6 +50,15 @@ const oauthTimeout = 5 * time.Minute
 // buttonLabel is what the sign-in button says; the view finds it to place the
 // click area.
 const buttonLabel = "Sign in via browser"
+
+// tokenSource tells where a token came from, because the advice for a token
+// without Music API access depends on it.
+type tokenSource int
+
+const (
+	sourcePaste tokenSource = iota
+	sourceOAuth
+)
 
 // loginpage.Model constructor.
 func New() *Model {
@@ -58,7 +75,8 @@ func New() *Model {
 	m.input.Placeholder = "paste your token here"
 	m.input.Focus()
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// the hover of the button needs the motion events, not only the clicks
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	m.program = p
 	m.hotkeys.Start(p)
 
@@ -104,18 +122,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case oauthDoneMsg:
-		m.oauthRunning = false
 		if msg.err != nil {
-			m.oauthErr = msg.err
+			m.busy = false
+			m.uiErr = msg.err
 			return m, nil
 		}
-		m.oauthErr = nil
-		config.Current.Token = msg.token
-		m.err = config.Save()
-		return m, tea.Quit
+		return m, m.checkToken(msg.token, sourceOAuth)
+
+	case tokenCheckedMsg:
+		m.busy = false
+		if msg.err == nil {
+			return m, m.accept(msg.token)
+		}
+		if !errors.Is(msg.err, api.ErrTokenRejected) {
+			// the network hid the answer: the token cannot be blamed, so it is
+			// saved and the API will tell about it later
+			return m, m.accept(msg.token)
+		}
+		if msg.source == sourceOAuth {
+			m.uiErr = errors.New("Yandex does not let this app use the Music API. " +
+				"Take a token from the 'Yandex Music Token' extension: " +
+				"open music.yandex.ru, copy the token and paste it here. " +
+				"The saved token was not changed.")
+		} else {
+			m.uiErr = errors.New("this token cannot open the Music API. " +
+				"Copy the token from the 'Yandex Music Token' extension on music.yandex.ru. " +
+				"The saved token was not changed.")
+		}
+		return m, nil
 
 	case hotkeys.HotkeyMsg:
-		// player hotkeys confirm the entered token as well
+		// player hotkeys confirm the entered token, or start the browser
+		// authorization when the field is empty
 		return m, m.confirm()
 
 	case tea.KeyMsg:
@@ -126,8 +164,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case controls.Quit.Contains(keypress):
 			return m, tea.Quit
-		case m.oauthRunning:
-			// the browser window has the focus: the input waits
+		case m.busy:
+			// the browser window or the check has the focus
 		case controls.Apply.Contains(keypress),
 			controls.PlayerRewindBackward.Contains(keypress),
 			controls.PlayerStop.Contains(keypress),
@@ -139,8 +177,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		if !m.oauthRunning && m.clickedButton(msg) {
-			cmds = append(cmds, m.startOAuth())
+		m.observeHover(msg)
+		if !m.busy && m.clickedButton(msg) {
+			cmds = append(cmds, m.confirm())
 		}
 
 	default:
@@ -154,40 +193,41 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) View() string {
 	title := style.DialogTitleStyle.Render("Enter your token")
 	inputView := m.input.View()
-	button := style.ButtonStyle.Padding(0, 3).Render(buttonLabel)
-	hint := style.DialogHelpStyle.Render(
-		"or press the button: the browser opens oauth.yandex.ru")
+
+	buttonStyle := style.ButtonStyle.Padding(0, 3)
+	if m.hover {
+		buttonStyle = style.ActiveButtonStyle.Padding(0, 3)
+	}
+	button := buttonStyle.Render(buttonLabel)
 
 	var content string
 	switch {
-	case m.oauthRunning:
+	case m.busy:
 		m.buttonW = 0
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			title,
-			style.AccentTextStyle.Render("Waiting for the browser..."),
-			"Allow the access in oauth.yandex.ru, the token is saved automatically.",
-		)
-	case m.oauthErr != nil:
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			title,
-			inputView,
-			button,
-			style.ErrorTextStyle.Render("Authorization failed: "+m.oauthErr.Error()),
-			"Try again, or paste a token manually.",
+			style.AccentTextStyle.Render(m.busyText),
+			"Keep this window open, the token is saved automatically.",
 		)
 	default:
 		content = lipgloss.JoinVertical(lipgloss.Left, title, inputView, button)
+		if m.uiErr != nil {
+			content = lipgloss.JoinVertical(lipgloss.Left, content,
+				style.ErrorTextStyle.Width(64).Render(m.uiErr.Error()))
+		}
 	}
 
 	box := style.DialogBoxStyle.Render(content)
 	helpView := style.DialogHelpStyle.Render(m.help.View(m.helpMap))
 
-	var block string
-	if m.oauthErr != nil || !m.oauthRunning {
-		block = lipgloss.JoinVertical(lipgloss.Left, box, hint, helpView)
-	} else {
-		block = lipgloss.JoinVertical(lipgloss.Left, box, helpView)
+	// the hint stays outside the box, where it does not move the button
+	var hint string
+	if !m.busy {
+		hint = style.DialogHelpStyle.Render(
+			"Token: music.yandex.ru -> the 'Yandex Music Token' extension -> copy")
 	}
+
+	block := lipgloss.JoinVertical(lipgloss.Left, box, hint, helpView)
 
 	// the button is placed here, so a click in the view finds it
 	m.placeButton(block)
@@ -204,7 +244,7 @@ func (m *Model) View() string {
 // cannot drift from what is on the screen, whatever the style does.
 func (m *Model) placeButton(block string) {
 	m.buttonW = 0
-	if m.oauthRunning {
+	if m.busy {
 		return
 	}
 
@@ -235,30 +275,59 @@ func (m *Model) clickedButton(msg tea.MouseMsg) bool {
 		msg.Button != tea.MouseButtonLeft {
 		return false
 	}
-	return msg.X >= m.buttonX && msg.X < m.buttonX+m.buttonW &&
-		msg.Y == m.buttonY
+	return m.overButton(msg.X, msg.Y)
 }
 
-// confirm saves the pasted token, or starts the browser authorization when
-// the field is empty.
+// observeHover lights the button while the mouse is over it.
+func (m *Model) observeHover(msg tea.MouseMsg) {
+	if m.buttonW == 0 || m.busy {
+		m.hover = false
+		return
+	}
+	m.hover = m.overButton(msg.X, msg.Y)
+}
+
+func (m *Model) overButton(x, y int) bool {
+	return x >= m.buttonX && x < m.buttonX+m.buttonW && y == m.buttonY
+}
+
+// confirm starts the browser authorization when the field is empty, and
+// checks the pasted token otherwise.
 func (m *Model) confirm() tea.Cmd {
-	if m.oauthRunning {
+	if m.busy {
 		return nil
 	}
 	token := strings.TrimSpace(m.input.Value())
 	if token == "" {
 		return m.startOAuth()
 	}
+	return m.checkToken(token, sourcePaste)
+}
+
+// accept saves the token that the API has confirmed and ends the login.
+func (m *Model) accept(token string) tea.Cmd {
 	config.Current.Token = token
 	m.err = config.Save()
 	return tea.Quit
 }
 
+// checkToken verifies the token in the background: a token without access to
+// the Music API must not replace the saved one.
+func (m *Model) checkToken(token string, source tokenSource) tea.Cmd {
+	m.busy = true
+	m.busyText = "Checking the token..."
+	m.uiErr = nil
+	return func() tea.Msg {
+		return tokenCheckedMsg{token: token, source: source, err: api.CheckToken(token)}
+	}
+}
+
 // startOAuth runs the browser authorization in the background: the model is
 // only touched by the message the command sends back.
 func (m *Model) startOAuth() tea.Cmd {
-	m.oauthRunning = true
-	m.oauthErr = nil
+	m.busy = true
+	m.busyText = "Waiting for the browser..."
+	m.uiErr = nil
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), oauthTimeout)
 		defer cancel()
@@ -272,6 +341,13 @@ func (m *Model) startOAuth() tea.Cmd {
 type oauthDoneMsg struct {
 	token string
 	err   error
+}
+
+// tokenCheckedMsg is the answer of the Music API about the token.
+type tokenCheckedMsg struct {
+	token  string
+	source tokenSource
+	err    error
 }
 
 //
