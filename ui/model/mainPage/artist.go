@@ -53,6 +53,7 @@ func (m *Model) showArtist(track *api.Track) tea.Cmd {
 			Name:    artist.Name + " popular",
 			Active:  true,
 			Subitem: true,
+			Label:   "артист",
 			Tracks:  tracks,
 		})
 	}()

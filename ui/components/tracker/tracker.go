@@ -40,6 +40,10 @@ const (
 	BUFFERING_COMPLETE
 	TOGGLE_LYRICS
 	TOGGLE_VIEW
+	// ENDED is sent when the current track played to its end. It is not the
+	// same as NEXT: with "repeat one" the track has to start over instead of
+	// switching to the next one.
+	ENDED
 )
 
 type ProgressControl float64

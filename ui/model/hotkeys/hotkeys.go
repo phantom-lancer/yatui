@@ -23,8 +23,9 @@ func (m HotkeyMsg) String() string {
 // The watcher polls the keyboard state and sends the missing events
 // to the program itself.
 //
-// isActive reports whether the polling is needed: it is turned off
-// as soon as the terminal turns out to deliver function keys itself.
-func Start(p *tea.Program, isActive func() bool) {
+// isActive reports whether the given key still has to be polled: a key the
+// terminal delivers itself is turned off one by one, so the keys that only
+// the watcher can deliver keep working.
+func Start(p *tea.Program, isActive func(tea.KeyType) bool) {
 	start(p, isActive)
 }

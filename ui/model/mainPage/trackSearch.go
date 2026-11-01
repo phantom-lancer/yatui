@@ -263,7 +263,8 @@ func (m *Model) trackSearchControl(message tea.Msg) (tea.Cmd, bool) {
 			}
 			ts.refresh()
 			return nil, true
-		case "space":
+		case " ", "space":
+			// tea.KeySpace.String() is a space, not the word "space"
 			ts.query += " "
 			ts.refresh()
 			return nil, true

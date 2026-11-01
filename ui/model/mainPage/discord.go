@@ -172,24 +172,44 @@ func (m *Model) discordSync() {
 		m.discordClear()
 		return
 	}
-	if m.tracker.IsPlaying() {
-		// resuming after the AFK timeout shows the card again
-		discordTimedOut = false
+
+	// the user has been away for long: the card is hidden until the input
+	// resumes, no matter whether the music is playing or paused
+	if m.discordAfk() {
+		if !discordTimedOut {
+			discordTimedOut = true
+			m.discordClear()
+		}
 		return
 	}
-	if discordTimedOut {
-		// the card is already hidden by the AFK timeout
+	discordTimedOut = false
+
+	if m.tracker.IsPlaying() {
+		// the card follows the track: the keepalive also brings it back
+		// after the AFK timeout, so it is always up to date
+		m.discordUpdate(m.discordTrack, true)
 		return
 	}
 	if !m.discordPausedAt.IsZero() {
 		timeout := time.Duration(discordConfig().AfkTimeout) * time.Minute
-		if time.Since(m.discordPausedAt) >= timeout {
+		if timeout > 0 && time.Since(m.discordPausedAt) >= timeout {
 			discordTimedOut = true
 			m.discordClear()
 			return
 		}
 	}
-	m.discordUpdate(m.discordTrack, m.tracker.IsPlaying())
+	m.discordUpdate(m.discordTrack, false)
+}
+
+// discordAfk reports whether the user has not touched the program for the
+// configured time. Moving the mouse counts as well, so listening to music
+// with the app open does not hide the card while the user is around.
+func (m *Model) discordAfk() bool {
+	timeout := time.Duration(discordConfig().AfkTimeout) * time.Minute
+	if timeout <= 0 || m.lastInput.IsZero() {
+		return false
+	}
+	return time.Since(m.lastInput) >= timeout
 }
 
 // discordRefresh re-sends the current track after play/pause. The state comes

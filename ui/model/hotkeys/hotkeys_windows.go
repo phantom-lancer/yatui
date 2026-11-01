@@ -45,24 +45,18 @@ func isKeyDown(vkey int32) bool {
 // negligible: three trivial API calls per tick.
 const _POLL_INTERVAL = 50 * time.Millisecond
 
-func start(p *tea.Program, isActive func() bool) {
+func start(p *tea.Program, isActive func(tea.KeyType) bool) {
 	go func() {
 		var pressed [len(functionKeys)]bool
 		ticker := time.NewTicker(_POLL_INTERVAL)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if isActive != nil && !isActive() {
-				// remember the state while the polling is off
-				for i, fkey := range functionKeys {
-					pressed[i] = isKeyDown(fkey.vkey)
-				}
-				continue
-			}
-
+			// every key is checked on its own: a key the terminal reports
+			// itself is simply skipped, the rest keeps being polled
 			for i, fkey := range functionKeys {
 				down := isKeyDown(fkey.vkey)
-				if down && !pressed[i] {
+				if down && !pressed[i] && (isActive == nil || isActive(fkey.key)) {
 					p.Send(HotkeyMsg{Key: fkey.key})
 				}
 				pressed[i] = down

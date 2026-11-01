@@ -297,7 +297,7 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 		w.finalizeLoudness()
 		w.decoder.Seek(0, io.SeekStart)
 		w.trackBuffer.Close()
-		go w.program.Send(NEXT)
+		go w.program.Send(ENDED)
 	} else if !w.trackDone && time.Since(w.lastUpdateTime) > _PROGRESS_UPDATE_PERIOD {
 		w.lastUpdateTime = time.Now()
 		fraction := ProgressControl(w.trackBuffer.Progress())

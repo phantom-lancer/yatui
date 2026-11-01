@@ -84,7 +84,7 @@ func (m *Model) refreshTrackList() {
 
 	item := m.playlists.Items()[m.currentPlaylistIndex]
 	m.displayPlaylist(item)
-	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
+	m.indicateCurrentTrackPlaying(m.tracker != nil && m.tracker.IsPlaying())
 }
 
 // queueEntries returns the manual queue followed by the upcoming tracks of
@@ -114,6 +114,8 @@ func (m *Model) playQueueIndex(index int) {
 	}
 
 	m.playQueueTrackIndex = index
+	// a playlist track starts: the manual one, if any, is over
+	m.manualPlaying = nil
 	if m.currentPlaylistIndex >= 0 && m.currentPlaylistIndex < len(m.playlists.Items()) {
 		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
 		currentPlaylist.CurrentTrack = index
@@ -143,8 +145,9 @@ func (m *Model) playQueueEntry(entries []queueEntry, index int) {
 				break
 			}
 		}
-		m.refreshQueue()
 		track := entry.track
+		m.manualPlaying = &track
+		m.refreshQueue()
 		m.playTrack(&track)
 		return
 	}

@@ -80,6 +80,7 @@ func (m *Model) displaySearchResults(res api.SearchResult, searchConfig *config.
 			Name:    "search \"" + res.Text + "\"",
 			Active:  true,
 			Subitem: true,
+			Label:   "треки",
 			Tracks:  res.Tracks.Results,
 		})
 	}
@@ -127,7 +128,7 @@ func (m *Model) displaySearchResults(res api.SearchResult, searchConfig *config.
 				continue
 			}
 			wg.Add(1)
-			go m.loadSearchPlaylists(&wg, pl, &albumBlocks[i])
+			go m.loadSearchPlaylists(&wg, pl, &playlistBlocks[i])
 		}
 	}
 
@@ -188,6 +189,7 @@ func (m *Model) loadSearchArtist(wg *sync.WaitGroup, artist *api.Artist, withPop
 			Name:    artist.Name + " popular",
 			Active:  true,
 			Subitem: true,
+			Label:   "артист",
 			Tracks:  tracks,
 		})
 	}
@@ -219,6 +221,7 @@ func (m *Model) loadSearchArtist(wg *sync.WaitGroup, artist *api.Artist, withPop
 			Kind:          playlist.ALBUMS,
 			Active:        true,
 			Subitem:       true,
+			Label:         "артист",
 			Albums:        albums,
 			SelectedAlbum: -1,
 		})
@@ -250,6 +253,7 @@ func (m *Model) loadSearchAlbums(wg *sync.WaitGroup, album *api.Album, block *me
 		Name:    fmt.Sprintf("%s (%s)", albumWithTracks.Title, albumArtists),
 		Active:  true,
 		Subitem: true,
+		Label:   "альбом",
 		Tracks:  albumTracks,
 	})
 }
@@ -273,6 +277,7 @@ func (m *Model) loadSearchPlaylists(wg *sync.WaitGroup, pl *api.Playlist, block 
 		Name:    pl.Title + " by " + pl.Owner.Name,
 		Active:  true,
 		Subitem: true,
+		Label:   "плейлист",
 		Tracks:  playlistTracks,
 	})
 }

@@ -216,7 +216,14 @@ func (m *Model) removeFromPlaylist(pl *playlist.Item, index int) tea.Cmd {
 
 func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
 	var cmds []tea.Cmd
-	if pl.Kind == playlist.NONE || pl.Kind == playlist.MYWAVE || len(pl.Tracks) == 0 {
+	if pl == nil || pl.Kind == playlist.MYWAVE || len(pl.Tracks) == 0 {
+		return nil
+	}
+
+	// the playlist that was clicked is not necessarily the selected one: the
+	// shuffled order must be written back to its own place in the sidebar
+	index := m.playlistIndex(pl)
+	if index < 0 {
 		return nil
 	}
 
@@ -243,9 +250,13 @@ func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
 	pl.Tracks = tracks
 	pl.SelectedTrack = selectedTrackIndex
 	pl.CurrentTrack = currentTrackIndex
-	cmds = append(cmds, m.playlists.SetItem(m.playlists.Index(), pl))
-	cmds = append(cmds, m.tracklist.SetItems(trackList))
-	m.tracklist.Select(m.tracklistIndex(selectedTrackIndex))
+	cmds = append(cmds, m.playlists.SetItem(index, pl))
+
+	// only the playlist on the screen changes its list
+	if m.playlists.Index() == index {
+		cmds = append(cmds, m.tracklist.SetItems(trackList))
+		m.tracklist.Select(m.tracklistIndex(selectedTrackIndex))
+	}
 	m.showToast(fmt.Sprintf("Перемешано: %d", len(tracks)))
 
 	if m.currentPlaylistIndex >= 0 && pl.IsSame(m.playlists.Items()[m.currentPlaylistIndex]) {
@@ -255,6 +266,16 @@ func (m *Model) shufflePlaylist(pl *playlist.Item) tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// playlistIndex returns the place of the playlist in the sidebar, or -1.
+func (m *Model) playlistIndex(pl *playlist.Item) int {
+	for i, item := range m.playlists.Items() {
+		if item == pl {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *Model) albumListActive() bool {
@@ -302,7 +323,15 @@ func (m *Model) displayPlaylist(pl *playlist.Item) {
 			itemlist[i] = tracklist.NewAlbumItem(&pl.Albums[i])
 		}
 	} else {
-		itemlist = make([]tracklist.Item, 0, len(m.manualQueue)+len(pl.Tracks))
+		itemlist = make([]tracklist.Item, 0, len(m.manualQueue)+len(pl.Tracks)+1)
+
+		// the manual track that is playing right now is not a part of the
+		// playlist, so it is shown as the first row
+		if m.manualPlaying != nil {
+			item := tracklist.NewItem(m.manualPlaying)
+			item.IsPlaying = m.tracker != nil && m.tracker.IsPlaying()
+			itemlist = append(itemlist, item)
+		}
 
 		// the tracks the user put in the queue are shown at the top of the
 		// list: they are played right after the current track
@@ -349,12 +378,30 @@ func (m *Model) displayPlaylist(pl *playlist.Item) {
 		}
 	default:
 		title := style.TrackTitleStyle.Render(pl.Name)
-		m.tracklist.Title = "Треки из " + title
+		if pl.Label != "" {
+			// the kind of the item is shown, so a playlist, an album and a
+			// track list are told apart in the search results
+			m.tracklist.Title = "Треки из " + title + style.TrackVersionStyle.Render(" · "+pl.Label)
+		} else {
+			m.tracklist.Title = "Треки из " + title
+		}
 	}
 }
 
 func (m *Model) indicateCurrentTrackPlaying(playing bool) {
 	if m.currentPlaylistIndex < 0 {
+		return
+	}
+
+	// a track from the queue is playing: the top row of the list is the one
+	// that has to be marked, the playlist rows have nothing to do with it
+	if m.manualPlaying != nil {
+		items := m.tracklist.Items()
+		if len(items) > 0 {
+			item := items[0]
+			item.IsPlaying = playing
+			m.tracklist.SetItem(0, item)
+		}
 		return
 	}
 

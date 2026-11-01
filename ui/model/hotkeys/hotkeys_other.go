@@ -6,4 +6,4 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func start(p *tea.Program, isActive func() bool) {}
+func start(p *tea.Program, isActive func(tea.KeyType) bool) {}

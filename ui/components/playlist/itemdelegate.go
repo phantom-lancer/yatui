@@ -51,6 +51,9 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 
 	name := item.Name
+	if item.Label != "" {
+		name += " · " + item.Label
+	}
 	nameLen := lipgloss.Width(name)
 	maxLen := m.Width() - 5
 	if nameLen > maxLen {

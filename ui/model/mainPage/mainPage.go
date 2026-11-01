@@ -52,6 +52,10 @@ type Model struct {
 	playQueueTrackIndex  int
 	currentPlaylistIndex int
 	currentAlbumIndex    int
+	// manualPlaying is the track from the queue that is playing right now.
+	// It is shown at the top of the list as the playing one, because it is
+	// not a part of the playlist.
+	manualPlaying *api.Track
 
 	likedTracksMap    map[string]bool
 	dislikedTracksMap map[string]bool
@@ -68,6 +72,9 @@ type Model struct {
 	toastTimerPending bool
 	// toastPlaylist is the name of the playlist the last toast reported
 	toastPlaylist string
+	// lastInput is when the user touched the keyboard or the mouse last:
+	// the Discord card is hidden when there was no input for a long time.
+	lastInput time.Time
 
 	settings         *settingsModel
 	isSettingsActive bool
@@ -269,6 +276,20 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// the animation and the Discord keepalive are handled before any window:
+	// a window that swallows their tick would stop them for good
+	switch message.(type) {
+	case rgbTickMsg:
+		return m, m.handleRgbTick()
+	case discordTickMsg:
+		m.discordSync()
+		return m, discordTickCmd()
+	case tea.KeyMsg, tea.MouseMsg:
+		// the user is here: the Discord card is shown again even after the
+		// AFK timeout hid it
+		m.lastInput = time.Now()
+	}
+
 	// the help window captures the keys while it is open
 	if cmd, handled := m.helpControl(message); handled {
 		return m, cmd
@@ -415,13 +436,6 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		return m, model.Cmd(playlist.CURSOR_UP)
 
-	case discordTickMsg:
-		m.discordSync()
-		return m, discordTickCmd()
-
-	case rgbTickMsg:
-		return m, m.handleRgbTick()
-
 	case cacheListMsg:
 		m.applyCacheList(msg)
 		return m, nil
@@ -524,7 +538,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 			cmds = append(cmds, m.spinner.Tick)
 			go m.initialLoad()
-		case keypress == "/":
+		case keypress == "/", keypress == ".", keypress == ",":
+			// the same key on the Russian layout types "." and ",",
+			// so the search is opened without switching the layout
 			cmds = append(cmds, m.openTrackSearch())
 		case keypress == "r":
 			m.toggleRepeat()
@@ -649,6 +665,14 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tracker.Control:
 		switch msg {
 		case tracker.NEXT:
+			m.nextTrack()
+			m.showPlayingToast()
+		case tracker.ENDED:
+			// the track played to its end: "repeat one" starts it over
+			if m.repeatMode == tracker.RepeatOne {
+				m.replayCurrentTrack()
+				break
+			}
 			m.nextTrack()
 			m.showPlayingToast()
 		case tracker.PREV:

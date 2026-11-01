@@ -46,13 +46,14 @@ func (m *Model) playerHotkey(keypress string) tea.Cmd {
 }
 
 // restartOrPreviousTrack rewinds the current track to its beginning or,
-// if it has just started, switches to the previous track.
+// if it has just started, switches to the previous track. The moment when a
+// track counts as "just started" is the rewind duration of the settings.
 func (m *Model) restartOrPreviousTrack() tea.Cmd {
 	if m.tracker.IsStoped() {
 		return nil
 	}
 
-	if m.tracker.Position() > _TRACK_RESTART_THRESHOLD {
+	if m.tracker.Position() > m.restartThreshold() {
 		return tea.Batch(
 			m.tracker.SeekToStart(),
 			model.Cmd(tracker.REWIND),
@@ -60,6 +61,16 @@ func (m *Model) restartOrPreviousTrack() tea.Cmd {
 	}
 
 	return model.Cmd(tracker.PREV)
+}
+
+// restartThreshold is the playback position before which "back" switches to
+// the previous track instead of starting the current one over.
+func (m *Model) restartThreshold() time.Duration {
+	seconds := config.Current.RewindDuration
+	if seconds <= 0 {
+		return _TRACK_RESTART_THRESHOLD
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 // Rect is a rectangular area of the screen.
@@ -340,7 +351,7 @@ func (m *Model) mousePress(x, y int) tea.Cmd {
 
 	switch {
 	case m.mouse.prev.Contains(x, y):
-		return model.Cmd(tracker.PREV)
+		return m.restartOrPreviousTrack()
 
 	case m.mouse.play.Contains(x, y):
 		return m.togglePlayback()
@@ -519,24 +530,59 @@ func (m *Model) playTrackAt(index int) tea.Cmd {
 	return cmd
 }
 
+// _waveSeedsLimit is how many tracks of a playlist seed its wave. The station
+// is built from the first tracks, the rest would not change it.
+const _waveSeedsLimit = 5
+
 // playRadioByTrack starts a radio session based on the given track.
 func (m *Model) playRadioByTrack(track *api.Track) tea.Cmd {
-	if m.client == nil || track == nil {
+	if track == nil {
+		return nil
+	}
+	return m.startRadioSession([]string{"track:" + track.Id}, "волна: "+track.Title)
+}
+
+// startWaveFromPlaylist starts a wave seeded by the tracks of the playlist,
+// so the wave goes on in the mood of its music.
+func (m *Model) startWaveFromPlaylist(pl *playlist.Item) tea.Cmd {
+	if pl == nil || len(pl.Tracks) == 0 {
 		return nil
 	}
 
-	session, err := m.client.RotorNewSession(api.StationId{Type: "track", Tag: track.Id})
+	seeds := make([]string, 0, _waveSeedsLimit)
+	for i := range pl.Tracks {
+		if pl.Tracks[i].Id == "" {
+			continue
+		}
+		seeds = append(seeds, "track:"+pl.Tracks[i].Id)
+		if len(seeds) == _waveSeedsLimit {
+			break
+		}
+	}
+
+	return m.startRadioSession(seeds, "волна: "+pl.Name)
+}
+
+// startRadioSession starts a rotor session with the given seeds and opens it
+// as a new wave in the sidebar.
+func (m *Model) startRadioSession(seeds []string, name string) tea.Cmd {
+	if m.client == nil || len(seeds) == 0 {
+		return nil
+	}
+
+	session, err := m.client.RotorNewSessionWithSeeds(seeds)
 	if err != nil {
 		m.tracker.ShowError("radio session")
 		return nil
 	}
 
 	st := &playlist.Item{
-		Name:         "radio: " + track.Title,
+		Name:         name,
 		Kind:         playlist.MYWAVE,
 		Active:       true,
 		Subitem:      false,
 		Rotor:        true,
+		Label:        "волна",
 		SessionId:    session.RadioSessionId,
 		SessionBatch: session.BatchId,
 	}
@@ -557,6 +603,31 @@ func (m *Model) playRadioByTrack(track *api.Track) tea.Cmd {
 	m.followSelectedPlaylist()
 
 	m.playSelectedPlaylist(0)
+	return nil
+}
+
+// playPlaylistFromStart opens the playlist in the sidebar and plays its first
+// track, so any playlist can be started from its context menu.
+func (m *Model) playPlaylistFromStart(pl *playlist.Item) tea.Cmd {
+	index := m.playlistIndex(pl)
+	if index < 0 || len(pl.Tracks) == 0 {
+		return nil
+	}
+
+	m.playlists.Select(index)
+	m.followSelectedPlaylist()
+	return m.playTrackAt(0)
+}
+
+// queuePlaylist puts every track of the playlist into the manual queue.
+func (m *Model) queuePlaylist(pl *playlist.Item) tea.Cmd {
+	if pl == nil || len(pl.Tracks) == 0 {
+		return nil
+	}
+
+	m.manualQueue = append(m.manualQueue, pl.Tracks...)
+	m.refreshQueue()
+	m.showToast("В очередь: " + pl.Name)
 	return nil
 }
 
@@ -614,7 +685,7 @@ func (m *Model) mouseRightClick(x, y int) tea.Cmd {
 
 // openPlaylistMenu builds the context menu of a sidebar playlist.
 func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
-	items := make([]contextMenuItem, 0, 3)
+	items := make([]contextMenuItem, 0, 6)
 
 	if pl.Kind == playlist.MYWAVE {
 		items = append(items, contextMenuItem{
@@ -634,13 +705,36 @@ func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
 		})
 	}
 
-	if pl.Kind == playlist.LIKES || pl.Kind == playlist.LOCAL {
-		items = append(items, contextMenuItem{
-			label: "Перемешать",
-			action: func(m *Model) tea.Cmd {
-				return m.shufflePlaylist(pl)
+	// every playlist with tracks can be played, turned into a wave of its
+	// own and put into the queue: the menu does not depend on the place the
+	// playlist came from
+	if len(pl.Tracks) > 0 {
+		items = append(items,
+			contextMenuItem{
+				label: "Играть",
+				action: func(m *Model) tea.Cmd {
+					return m.playPlaylistFromStart(pl)
+				},
 			},
-		})
+			contextMenuItem{
+				label: "Волна по плейлисту",
+				action: func(m *Model) tea.Cmd {
+					return m.startWaveFromPlaylist(pl)
+				},
+			},
+			contextMenuItem{
+				label: "Перемешать",
+				action: func(m *Model) tea.Cmd {
+					return m.shufflePlaylist(pl)
+				},
+			},
+			contextMenuItem{
+				label: "В очередь",
+				action: func(m *Model) tea.Cmd {
+					return m.queuePlaylist(pl)
+				},
+			},
+		)
 	}
 
 	if len(items) == 0 {

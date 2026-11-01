@@ -117,6 +117,7 @@ func (m *Model) startStation(desc api.StationDesc) tea.Cmd {
 			Active:       true,
 			Subitem:      false,
 			Rotor:        true,
+			Label:        "волна",
 			SessionId:    session.RadioSessionId,
 			SessionBatch: session.BatchId,
 			Tracks:       []api.Track{session.Sequence[0].Track},

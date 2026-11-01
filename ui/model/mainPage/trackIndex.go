@@ -1,13 +1,17 @@
 package mainpage
 
-// nextCount is the number of the tracks the user put in the queue. They are
-// shown at the top of the track list, so the indexes of the list and of the
-// playlist are shifted by this number.
+// nextCount is the number of the extra rows the manual queue takes at the top
+// of the track list. They are shown there, so the indexes of the list and of
+// the playlist are shifted by this number.
 func (m *Model) nextCount() int {
 	if m.albumListActive() {
 		return 0
 	}
-	return len(m.manualQueue)
+	count := len(m.manualQueue)
+	if m.manualPlaying != nil {
+		count++
+	}
+	return count
 }
 
 // playlistTrackIndex returns the index of the track in the playlist that is

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -123,6 +124,31 @@ type Label struct {
 	Name string `json:"name"`
 }
 
+// UnmarshalJSON accepts both forms the server sends for a label: a plain
+// string and an object with an id and a name.
+func (l *Label) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var name string
+		if err := json.Unmarshal(data, &name); err != nil {
+			return err
+		}
+		l.Id = 0
+		l.Name = name
+		return nil
+	}
+
+	var label struct {
+		Id   ID     `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &label); err != nil {
+		return err
+	}
+	l.Id = label.Id
+	l.Name = label.Name
+	return nil
+}
+
 type Artist struct {
 	Id       ID       `json:"id"`
 	Name     string   `json:"name"`
@@ -201,6 +227,32 @@ type Track struct {
 	RememberPosition bool   `json:"rememberPosition"`
 }
 
+// UnmarshalJSON accepts the track id both as a string and as a number: the
+// search results of the server carry a number, the rest of the API a string.
+func (t *Track) UnmarshalJSON(data []byte) error {
+	type plain Track
+	var raw struct {
+		Id json.RawMessage `json:"id"`
+		*plain
+	}
+	raw.plain = (*plain)(t)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	t.Id = rawID(raw.Id)
+	return nil
+}
+
+// rawID turns a raw json value into the text of an identifier.
+func rawID(raw json.RawMessage) string {
+	text := strings.TrimSpace(string(raw))
+	text = strings.Trim(text, `"`)
+	if text == "null" {
+		return ""
+	}
+	return text
+}
+
 type Playlist struct {
 	Uid  uint64 `json:"uid"`
 	Kind uint64 `json:"kind"`
@@ -251,51 +303,9 @@ type Station struct {
 	} `json:"icon"`
 	FullImageUrl string `json:"fullImageUrl"`
 
-	Restrictions struct {
-		Language struct {
-			Type           string `json:"type"`
-			Name           string `json:"name"`
-			PossibleValues struct {
-				Name  string `json:"name"`
-				Value string `json:"value"`
-			} `json:"possibleValues"`
-		} `json:"language"`
-
-		Mood struct {
-			Type string `json:"type"`
-			Name string `json:"name"`
-			Min  struct {
-				Name  string  `json:"name"`
-				Value float32 `json:"value"`
-			} `json:"min"`
-			Max struct {
-				Name  string  `json:"name"`
-				Value float32 `json:"value"`
-			} `json:"max"`
-		} `json:"mood"`
-
-		Energy struct {
-			Type string `json:"type"`
-			Name string `json:"name"`
-			Min  struct {
-				Name  string  `json:"name"`
-				Value float32 `json:"value"`
-			} `json:"min"`
-			Max struct {
-				Name  string  `json:"name"`
-				Value float32 `json:"value"`
-			} `json:"max"`
-		} `json:"energy"`
-
-		Diversity struct {
-			Type           string `json:"type"`
-			Name           string `json:"name"`
-			PossibleValues struct {
-				Name  string `json:"name"`
-				Value string `json:"value"`
-			} `json:"possibleValues"`
-		} `json:"diversity"`
-	} `json:"restrictions"`
+	// The legacy "restrictions" of the server are ignored: its
+	// "possibleValues" is a plain array of strings there, which no longer
+	// matches the old struct and used to break the whole list.
 
 	// Restrictions2 are the options the user can tune the station with: the
 	// character, the mood and the language of the tracks.
@@ -459,11 +469,9 @@ type SearchResultTracks struct {
 type SearchResult struct {
 	SearchResultId string `json:"searchResultId"`
 	Text           string `json:"text"`
-	Best           struct {
-		Type   string `json:"type"`
-		Text   string `json:"text"`
-		Result Track  `json:"result"`
-	} `json:"best"`
+	// Best can be a track, an artist, an album or a playlist: their ids have
+	// different types, so the payload is kept raw.
+	Best json.RawMessage `json:"best"`
 
 	Albums    SearchResultAlbums    `json:"albums"`
 	Artists   SearchResultArtists   `json:"artists"`
@@ -479,12 +487,10 @@ type SearchResult struct {
 }
 
 type SearchSuggest struct {
-	Best struct {
-		Type   string `json:"type"`
-		Text   string `json:"text"`
-		Result Track  `json:"result"`
-	} `json:"best"`
-	Suggestions []string `json:"suggestions"`
+	// Best can be a track, an artist, an album or a playlist: their ids have
+	// different types, so the payload is kept raw.
+	Best        json.RawMessage `json:"best"`
+	Suggestions []string        `json:"suggestions"`
 }
 
 type TrackLyrics struct {

@@ -90,6 +90,20 @@ func (m *Model) rotateTracks(pl *playlist.Item) {
 }
 
 func (m *Model) prevTrack() {
+	if m.manualPlaying != nil {
+		// a manual track is playing: back returns to the playlist track it
+		// interrupted
+		m.manualPlaying = nil
+		m.refreshQueue()
+		if m.playQueueTrackIndex >= 0 && m.playQueueTrackIndex < len(m.playQueue) {
+			if track := &m.playQueue[m.playQueueTrackIndex]; track.Available {
+				m.playTrack(track)
+				return
+			}
+		}
+		m.Send(tracker.STOP)
+		return
+	}
 	if len(m.playQueue) == 0 || m.playQueueTrackIndex == 0 {
 		m.Send(tracker.STOP)
 		return
@@ -134,7 +148,8 @@ func (m *Model) nextTrack() {
 		m.manualQueue = m.manualQueue[1:]
 		if track.Available {
 			// the track leaves the queue: the list and the "next" line are
-			// refreshed
+			// refreshed, and the list shows it as the playing one
+			m.manualPlaying = &track
 			m.refreshQueue()
 			m.playTrack(&track)
 			return
@@ -145,6 +160,9 @@ func (m *Model) nextTrack() {
 		m.Send(tracker.STOP)
 		return
 	}
+
+	// a track of the playlist starts: the manual one, if any, is over
+	m.manualPlaying = nil
 
 	// the wave has to be asked for more tracks before the queue runs out:
 	// the current track may be the last one, e.g. when the user rearranged
@@ -199,6 +217,30 @@ func (m *Model) nextTrack() {
 				m.playQueueTrackIndex++
 			}
 		}
+	}
+
+	track := &m.playQueue[m.playQueueTrackIndex]
+	if !track.Available {
+		m.Send(tracker.STOP)
+		return
+	}
+
+	m.playTrack(track)
+}
+
+// replayCurrentTrack starts the playing track over: this is what "repeat one"
+// does when the track reaches its end. A track the user put in the queue
+// repeats itself too, even though it is not a part of the playlist.
+func (m *Model) replayCurrentTrack() {
+	if m.manualPlaying != nil {
+		track := *m.manualPlaying
+		m.playTrack(&track)
+		return
+	}
+
+	if m.playQueueTrackIndex < 0 || m.playQueueTrackIndex >= len(m.playQueue) {
+		m.Send(tracker.STOP)
+		return
 	}
 
 	track := &m.playQueue[m.playQueueTrackIndex]
@@ -532,6 +574,8 @@ func (m *Model) playSelectedPlaylist(trackIndex int) {
 	}
 
 	m.indicateCurrentTrackPlaying(false)
+	// a playlist track is chosen right away: the manual one is over
+	m.manualPlaying = nil
 
 	if selectedPlaylist.Rotor {
 		if m.currentPlaylistIndex != m.playlists.Index() {

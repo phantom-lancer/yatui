@@ -14,6 +14,10 @@ type Item struct {
 	Active       bool
 	Subitem      bool
 	Rotor        bool
+	// Label is the kind of the item as the user sees it: a playlist, an
+	// artist, an album or a wave. It is shown next to the name, so the
+	// results of the search are told apart.
+	Label string
 
 	Tracks        []api.Track
 	CurrentTrack  int
