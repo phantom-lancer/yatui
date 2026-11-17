@@ -12,6 +12,10 @@ import (
 	"github.com/phantom-lancer/yatui/ui/style"
 )
 
+// maxWidthStyle is immutable and reused for the width-limited track/album
+// text fragments rendered for every visible row.
+var maxWidthStyle = lipgloss.NewStyle()
+
 type ItemDelegate struct {
 	likesMap    *map[string]bool
 	dislikesMap *map[string]bool
@@ -52,7 +56,7 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 		addInfoLen := lipgloss.Width(albumMeta)
 		maxLen := m.Width() - addInfoLen - 2
-		clip := lipgloss.NewStyle().MaxWidth(maxLen - 1)
+		clip := maxWidthStyle.MaxWidth(maxLen - 1)
 
 		var albumTitle string
 		if item.IsPlaying {
@@ -136,7 +140,7 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		trackAddInfo := style.TrackAddInfoStyle.Render(trackCache + " " + trackLike + " " + trackTime)
 		addInfoLen := lipgloss.Width(trackAddInfo)
 		maxLen := m.Width() - addInfoLen - 2
-		clip := lipgloss.NewStyle().MaxWidth(maxLen - 1)
+		clip := maxWidthStyle.MaxWidth(maxLen - 1)
 
 		trackTitleLen := lipgloss.Width(trackTitle)
 		if trackTitleLen > maxLen {

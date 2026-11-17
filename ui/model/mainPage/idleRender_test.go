@@ -9,55 +9,66 @@ import (
 	"github.com/phantom-lancer/yatui/ui/components/tracker"
 )
 
-// The idle rendering must never hold back a key or collapse a burst of mouse
-// motion into a stutter: this test drives the wait exactly like Update does.
-
 func idleModel() *Model {
 	return &Model{}
 }
 
-func TestMotionOnIdleScreenIsCoalesced(t *testing.T) {
+func TestMotionOnIdleScreenIsCoalescedUntilTheNextFrame(t *testing.T) {
 	m := idleModel()
 	m.progressDrawn = time.Now()
 
 	immediate, schedule := m.frameDecision(tea.MouseMsg{Action: tea.MouseActionMotion})
 	if immediate || !schedule {
-		t.Fatalf("motion must be postponed: immediate=%v schedule=%v", immediate, schedule)
+		t.Fatalf("recent motion must be postponed: immediate=%v schedule=%v", immediate, schedule)
 	}
 
-	// every motion while the wait is running restarts it
-	var wait time.Duration
-	idleRenderTick = func() tea.Cmd {
-		wait = idleRenderSettle
-		return func() tea.Msg { return nil }
-	}
-	defer func() { idleRenderTick = defaultIdleRenderTick }()
-
-	m.idlePending = true
-	m.idleSince = time.Now()
-	if cmd := m.settleIdle(); cmd == nil {
-		t.Fatal("the wait must continue while there is no pause")
-	}
-	if !m.idlePending {
-		t.Fatal("the frame must stay postponed")
-	}
-	if wait != idleRenderSettle {
-		t.Fatalf("unexpected wait %v", wait)
+	m.progressDrawn = time.Now().Add(-idleRenderPeriod)
+	immediate, schedule = m.frameDecision(tea.MouseMsg{Action: tea.MouseActionMotion})
+	if !immediate || schedule {
+		t.Fatalf("motion after the frame interval must draw now: immediate=%v schedule=%v", immediate, schedule)
 	}
 }
 
-func TestIdleFrameIsDrawnAfterThePause(t *testing.T) {
+func TestMouseButtonsAreNeverPostponed(t *testing.T) {
 	m := idleModel()
-	idleRenderTick = func() tea.Cmd { return nil }
-	defer func() { idleRenderTick = defaultIdleRenderTick }()
+	m.progressDrawn = time.Now()
 
-	m.idlePending = true
-	m.idleSince = time.Now().Add(-idleRenderPeriod - time.Millisecond)
-	if cmd := m.settleIdle(); cmd != nil {
-		t.Fatal("the frame must be drawn, not postponed again")
+	for _, action := range []tea.MouseAction{tea.MouseActionPress, tea.MouseActionRelease} {
+		immediate, schedule := m.frameDecision(tea.MouseMsg{Action: action})
+		if !immediate || schedule {
+			t.Fatalf("mouse action %v must draw immediately: immediate=%v schedule=%v", action, immediate, schedule)
+		}
 	}
-	if m.idlePending {
-		t.Fatal("the pending frame must be cleared once drawn")
+}
+
+func TestIdleFrameCacheIsUsedWhileMotionIsPending(t *testing.T) {
+	m := &Model{idlePending: true, idleFrame: "last rendered frame", idleFrameValid: true}
+	if got := m.View(); got != "last rendered frame" {
+		t.Fatalf("View() = %q, want cached frame", got)
+	}
+}
+
+func TestSettlingIdleInvalidatesTheCachedFrameOnce(t *testing.T) {
+	m := &Model{idlePending: true, idleFrame: "old", idleFrameValid: true, idleRenderGeneration: 4}
+	if cmd := m.settleIdle(); cmd != nil {
+		t.Fatal("settling the pending frame must not schedule another timer")
+	}
+	if m.idlePending || m.idleFrameValid {
+		t.Fatal("pending state or stale frame cache was not cleared")
+	}
+	if m.idleRenderGeneration != 5 {
+		t.Fatalf("generation = %d, want 5", m.idleRenderGeneration)
+	}
+}
+
+func TestStaleIdleRenderTickDoesNotClearCurrentPendingFrame(t *testing.T) {
+	m := &Model{idlePending: true, idleFrame: "current", idleFrameValid: true, idleRenderGeneration: 8}
+	if immediate, schedule := m.frameDecision(idleRenderMsg{generation: 7}); immediate || schedule {
+		t.Fatalf("stale timer decision = (%v, %v), want (false, false)", immediate, schedule)
+	}
+	_, cmd := m.Update(idleRenderMsg{generation: 7})
+	if cmd != nil || !m.idlePending || !m.idleFrameValid || m.idleRenderGeneration != 8 {
+		t.Fatal("stale timer changed the current pending frame")
 	}
 }
 
@@ -72,7 +83,7 @@ func TestKeysAreNeverPostponed(t *testing.T) {
 func TestDialogsDrawAtOnce(t *testing.T) {
 	m := idleModel()
 	m.isSettingsActive = true
-	if immediate, schedule := m.frameDecision(tea.MouseMsg{}); !immediate || schedule {
+	if immediate, schedule := m.frameDecision(tea.MouseMsg{Action: tea.MouseActionMotion}); !immediate || schedule {
 		t.Fatalf("a dialog must draw at once: immediate=%v schedule=%v", immediate, schedule)
 	}
 }
@@ -81,30 +92,21 @@ func TestProgressIsThrottledOnIdleScreen(t *testing.T) {
 	m := idleModel()
 	m.progressDrawn = time.Now()
 
-	if _, schedule := m.frameDecision(tracker.ProgressControl(0.5)); schedule {
-		t.Fatal("a progress sample right after a frame must not be drawn")
+	immediate, schedule := m.frameDecision(tracker.ProgressControl(0.5))
+	if immediate || !schedule {
+		t.Fatalf("a recent progress sample must be coalesced: immediate=%v schedule=%v", immediate, schedule)
 	}
 
 	m.progressDrawn = time.Now().Add(-idleRenderPeriod)
-	if _, schedule := m.frameDecision(tracker.ProgressControl(0.5)); !schedule {
-		t.Fatal("a progress sample must be drawn at the idle rate")
+	immediate, schedule = m.frameDecision(tracker.ProgressControl(0.5))
+	if !immediate || schedule {
+		t.Fatalf("a progress sample after the interval must draw now: immediate=%v schedule=%v", immediate, schedule)
 	}
 }
 
-// A frame that is no longer needed must not arm another timer.
 func TestNothingPendingDrawsNothing(t *testing.T) {
 	m := idleModel()
-	ticks := 0
-	idleRenderTick = func() tea.Cmd {
-		ticks++
-		return nil
-	}
-	defer func() { idleRenderTick = defaultIdleRenderTick }()
-
 	if cmd := m.settleIdle(); cmd != nil {
 		t.Fatal("nothing is pending: no extra frame")
-	}
-	if ticks != 0 {
-		t.Fatal("nothing is pending: no new timer")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -52,6 +53,33 @@ func (p ProgressControl) Value() float64 {
 	return float64(p)
 }
 
+// VolumeFadeMsg advances one step of the player's volume fade.
+type VolumeFadeMsg struct {
+	generation uint64
+}
+
+// VolumeFadeStartMsg asks the main page to arm a fade after direct playback
+// changes that do not otherwise pass through a tracker control message.
+type VolumeFadeStartMsg struct{}
+
+func nextVolumeFadeStep(current, target, increment float64) (float64, bool) {
+	if increment == 0 {
+		return 0, false
+	}
+	if current >= target+increment {
+		next := current - increment/2
+		return next, next != target
+	}
+	if current <= target-increment {
+		next := current + increment/2
+		return next, next != target
+	}
+	if current != target {
+		return target, false
+	}
+	return target, false
+}
+
 const (
 	_VOLUME_FADE_STEPS     = 2
 	_VOLUME_SNAP_THRESHOLD = 0.005 // snap to 0/1 when close enough
@@ -59,17 +87,23 @@ const (
 )
 
 type Model struct {
-	width      int
-	track      api.Track
-	lyrics     []api.LyricPair
-	progress   progress.Model
-	volumeBar  progress.Model
-	help       help.Model
-	helpMap    *helpKeyMap
-	Hidden     bool
-	showLyrics bool
-	showError  bool
-	errorText  string
+	width                int
+	track                api.Track
+	lyrics               []api.LyricPair
+	lyricsSorted         bool
+	progress             progress.Model
+	lyricsPreviousStyle  lipgloss.Style
+	lyricsNextStyle      lipgloss.Style
+	lyricsCurrentStyle   lipgloss.Style
+	lyricsContainerStyle lipgloss.Style
+	lyricsStylesReady    bool
+	volumeBar            progress.Model
+	help                 help.Model
+	helpMap              *helpKeyMap
+	Hidden               bool
+	showLyrics           bool
+	showError            bool
+	errorText            string
 	// loading is set while the next track is being downloaded: the title is
 	// already shown, but there is nothing to play yet
 	loading bool
@@ -80,14 +114,15 @@ type Model struct {
 	// progressFrac is the real playback position in 0..1. It is drawn with
 	// sub-cell precision, so the bar moves smoothly instead of one cell at a
 	// time.
-	progressFrac   float64
-	volume         float64
-	volumeIncremet float64
-	lastVolumeKey  time.Time
-	rewindAmount   time.Duration
-	playerContext  *oto.Context
-	player         *oto.Player
-	trackWrapper   *readWrapper
+	progressFrac         float64
+	volume               float64
+	volumeIncremet       float64
+	volumeFadeGeneration uint64
+	lastVolumeKey        time.Time
+	rewindAmount         time.Duration
+	playerContext        *oto.Context
+	player               *oto.Player
+	trackWrapper         *readWrapper
 
 	program     *tea.Program
 	likesMap    *map[string]bool
@@ -168,6 +203,7 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.volumeBar.FullColor = string(style.AccentColor)
 	m.volumeBar.EmptyColor = string(style.BackgroundColor)
 	m.volumeBar.Width = style.VolumeIndicatorWidth
+	m.RefreshStyle()
 
 	m.help.Ellipsis = "…"
 	m.trackWrapper = &readWrapper{program: m.program}
@@ -188,7 +224,6 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	}
 	<-readyChan
 
-	go m.volumeFader()
 	return m
 }
 
@@ -200,6 +235,11 @@ func (m *Model) RefreshStyle() {
 	m.progress.EmptyColor = string(style.BackgroundColor)
 	m.volumeBar.FullColor = string(style.AccentColor)
 	m.volumeBar.EmptyColor = string(style.BackgroundColor)
+	m.lyricsPreviousStyle = lipgloss.NewStyle().Foreground(style.LyricsPreviosTextColor)
+	m.lyricsNextStyle = lipgloss.NewStyle().Foreground(style.LyricsNextTextColor)
+	m.lyricsCurrentStyle = lipgloss.NewStyle().Foreground(style.LyricsCurrentTextColor)
+	m.lyricsContainerStyle = lipgloss.NewStyle().Width(max(0, m.width-4)).AlignHorizontal(lipgloss.Center)
+	m.lyricsStylesReady = true
 }
 
 // SetNextTrack sets the "next:" line under the current track. An empty title
@@ -574,10 +614,21 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 		switch msg {
 		case PLAY:
 			m.Play()
+			cmd = m.StartVolumeFade()
+			cmds = append(cmds, cmd)
 		case PAUSE:
 			m.Pause()
 		case STOP:
 			m.Stop()
+		case VOLUME:
+			cmd = m.StartVolumeFade()
+			cmds = append(cmds, cmd)
+		}
+
+	case VolumeFadeMsg:
+		if msg.generation == m.volumeFadeGeneration && m.volumeFadeTick() {
+			cmd = m.scheduleVolumeFade(msg.generation)
+			cmds = append(cmds, cmd)
 		}
 
 	// track progress update
@@ -597,7 +648,12 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 }
 
 func (m *Model) SetWidth(width int) {
-	m.width = width
+	if m.width != width {
+		m.width = width
+		if m.lyricsStylesReady {
+			m.lyricsContainerStyle = lipgloss.NewStyle().Width(max(0, width-4)).AlignHorizontal(lipgloss.Center)
+		}
+	}
 	m.help.Width = width - 4
 }
 
@@ -724,6 +780,7 @@ func (m *Model) LoadTrack(track *api.Track) {
 	m.showError = false
 	m.track = *track
 	m.lyrics = nil
+	m.lyricsSorted = true
 	m.progressFrac = 0
 	m.playtime = 0
 	m.loading = true
@@ -756,6 +813,7 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	m.player.SetVolume(0)
 	m.player.Play()
 	m.lyrics = lyrics
+	m.lyricsSorted = lyricsAreSorted(lyrics)
 	m.paused = false
 	m.playtime = 0
 	m.playStarted = time.Now()
@@ -765,6 +823,7 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 
 func (m *Model) Stop() {
 	m.loading = false
+	m.volumeFadeGeneration++
 	if m.player == nil {
 		return
 	}
@@ -824,6 +883,7 @@ func (m *Model) Play() {
 // the pause happens: at zero volume there is nothing to fade, and relying on
 // the fade stopped the playback only sometimes.
 func (m *Model) Pause() {
+	m.volumeFadeGeneration++
 	if m.player == nil || m.trackWrapper == nil || m.trackWrapper.trackBuffer == nil {
 		return
 	}
@@ -922,33 +982,58 @@ func (m *Model) dynamicVolumeStep() float64 {
 	}
 }
 
-func (m *Model) volumeFadeTick() {
+// StartVolumeFade arms one timer only when the player is running and its
+// output volume differs from the configured target.
+func (m *Model) StartVolumeFade() tea.Cmd {
+	m.volumeFadeGeneration++
 	if m.player == nil || m.paused || !m.player.IsPlaying() {
-		return
+		return nil
 	}
-
-	if m.volumeIncremet == 0 {
-		m.player.SetVolume(0)
-		return
+	if math.Abs(m.player.Volume()-m.volume) < 0.0001 {
+		return nil
 	}
-
-	targetVolume := m.volume
-
-	currVol := m.player.Volume()
-	if currVol >= targetVolume+m.volumeIncremet {
-		m.player.SetVolume(currVol - m.volumeIncremet/2)
-	} else if currVol <= targetVolume-m.volumeIncremet {
-		m.player.SetVolume(currVol + m.volumeIncremet/2)
-	} else if currVol != targetVolume {
-		m.player.SetVolume(targetVolume)
-	}
+	return m.scheduleVolumeFade(m.volumeFadeGeneration)
 }
 
-func (m *Model) volumeFader() {
-	t := time.NewTicker(_VOLUME_FADE_PERIOD)
-	for range t.C {
-		m.volumeFadeTick()
+func (m *Model) scheduleVolumeFade(generation uint64) tea.Cmd {
+	return tea.Tick(_VOLUME_FADE_PERIOD, func(time.Time) tea.Msg {
+		return VolumeFadeMsg{generation: generation}
+	})
+}
+
+func (m *Model) volumeFadeTick() bool {
+	if m.player == nil || m.paused || !m.player.IsPlaying() {
+		return false
 	}
+
+	next, active := nextVolumeFadeStep(m.player.Volume(), m.volume, m.volumeIncremet)
+	m.player.SetVolume(next)
+	return active
+}
+
+func lyricsAreSorted(lines []api.LyricPair) bool {
+	for i := 1; i < len(lines); i++ {
+		if lines[i].Timestamp < lines[i-1].Timestamp {
+			return false
+		}
+	}
+	return true
+}
+
+// findNextLyricIndex returns the first source line after the current timestamp.
+// Sorted lyrics use binary search; unsorted input retains the old source-order scan.
+func findNextLyricIndex(lines []api.LyricPair, timestamp int, sorted bool) int {
+	if sorted {
+		return sort.Search(len(lines), func(i int) bool {
+			return lines[i].Timestamp > timestamp
+		})
+	}
+	for i := range lines {
+		if lines[i].Timestamp > timestamp {
+			return i
+		}
+	}
+	return len(lines)
 }
 
 func (m *Model) renderLyrics() string {
@@ -959,25 +1044,26 @@ func (m *Model) renderLyrics() string {
 	if m.player != nil && m.showLyrics {
 		switch m.track.LyricsInfo.HasAvailableSyncLyrics {
 		case true:
-			for idx, line := range m.lyrics {
-				if line.Timestamp > int(m.Position().Milliseconds()-1000) {
-					previousLine = m.tryGetLyricsLine(idx - 2)
-					currentLine = m.lyricsBreak(m.tryGetLyricsLine(idx - 1))
-					nextLine = m.tryGetLyricsLine(idx)
-					break
-				}
+			idx := findNextLyricIndex(m.lyrics, int(m.Position().Milliseconds()-1000), m.lyricsSorted)
+			if idx < len(m.lyrics) {
+				previousLine = m.tryGetLyricsLine(idx - 2)
+				currentLine = m.lyricsBreak(m.tryGetLyricsLine(idx - 1))
+				nextLine = m.tryGetLyricsLine(idx)
 			}
 		case false:
 			currentLine = "У этой песни нет синхронизированного текста"
 		}
 	}
 
-	previousLine = lipgloss.NewStyle().Foreground(style.LyricsPreviosTextColor).Render(previousLine)
-	nextLine = lipgloss.NewStyle().Foreground(style.LyricsNextTextColor).Render(nextLine)
-	currentLine = lipgloss.NewStyle().Foreground(style.LyricsCurrentTextColor).Render(currentLine)
+	if !m.lyricsStylesReady {
+		m.RefreshStyle()
+	}
+	previousLine = m.lyricsPreviousStyle.Render(previousLine)
+	nextLine = m.lyricsNextStyle.Render(nextLine)
+	currentLine = m.lyricsCurrentStyle.Render(currentLine)
 
 	lyrics := lipgloss.JoinVertical(lipgloss.Center, previousLine, currentLine, nextLine)
-	lyrics = lipgloss.NewStyle().Width(m.width - 4).AlignHorizontal(lipgloss.Center).Render(lyrics)
+	lyrics = m.lyricsContainerStyle.Render(lyrics)
 
 	return lyrics
 }

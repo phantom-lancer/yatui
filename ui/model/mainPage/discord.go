@@ -25,10 +25,32 @@ const (
 
 // discordTickMsg refreshes the presence on a timer, so a paused or finished
 // track cannot stay "playing" in Discord forever.
-type discordTickMsg struct{}
+type discordTickMsg struct {
+	generation uint64
+}
 
-func discordTickCmd() tea.Cmd {
-	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return discordTickMsg{} })
+func discordTickCmd(generation uint64) tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return discordTickMsg{generation: generation}
+	})
+}
+
+func (m *Model) startDiscordTick() tea.Cmd {
+	if !discordConfig().Enabled {
+		m.stopDiscordTick()
+		return nil
+	}
+	if m.discordTickRunning {
+		return nil
+	}
+	m.discordTickGeneration++
+	m.discordTickRunning = true
+	return discordTickCmd(m.discordTickGeneration)
+}
+
+func (m *Model) stopDiscordTick() {
+	m.discordTickGeneration++
+	m.discordTickRunning = false
 }
 
 // The Discord pipe is owned by one background goroutine: dialing a stuck

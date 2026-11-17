@@ -564,6 +564,7 @@ func (m *Model) playSelectedPlaylist(trackIndex int) {
 				return
 			} else {
 				m.tracker.Play()
+				m.Send(tracker.VolumeFadeStartMsg{})
 				return
 			}
 		}

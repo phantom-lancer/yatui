@@ -10,3 +10,5 @@ Task 1: complete (go test ./... -count=1, exit 0; 25 packages reported, no failu
 Task 2: RED confirmed (missing feedback policy/command helpers); GREEN confirmed (focused tests pass). Task 2: complete (go test ./... -count=1, exit 0).
 
 Task 3: RED confirmed (missing async request/result helpers and success-only local-state application); GREEN confirmed (focused tests pass). Task 3: complete (go test ./... -count=1, exit 0).
+
+Task 4: RED confirmed for permanent volume ticker and disabled Discord keepalive. GREEN: one-shot, generation-guarded volume fade; Discord keepalive only while enabled; focused tests passed. Task 5: RED confirmed for missing cache generation and lyric index helper. GREEN: idle frame cache, 80ms coalescing, immediate clicks/keys, stale timer invalidation, binary search for sorted lyrics, Lip Gloss style reuse. Full go test ./... -count=1 passed (exit 0).

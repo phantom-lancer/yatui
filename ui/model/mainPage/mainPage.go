@@ -95,6 +95,10 @@ type Model struct {
 	discordTrack *api.Track
 	// discordPausedAt is when the playback was paused, for the AFK timeout
 	discordPausedAt time.Time
+	// Discord keepalive is scheduled only while RPC is enabled. Generations
+	// make already queued timer messages harmless after disabling and re-enabling.
+	discordTickGeneration uint64
+	discordTickRunning    bool
 
 	// the window with all the key bindings
 	isHelpActive bool
@@ -157,17 +161,13 @@ type Model struct {
 	// theme on and off never starts a second loop
 	rgbRunning bool
 
-	// idleRendering: most frames do not change anything while a track simply
-	// plays, so a frame is only drawn when there is no new input for a moment.
-	// A trackpad in all-motion mode otherwise redraws the whole screen dozens
-	// of times a second just to move the highlight.
-	// idleRendering: a motion event or a progress sample on an idle screen
-	// postpones the frame, so the newest state is drawn once instead of every
-	// event redrawing the window
-	idlePending bool
-	idleSince   time.Time
-	// progressDrawn is when the frame with the playback progress was drawn:
-	// the bar is refreshed at the idle rate instead of every sample
+	// idle rendering caches the last completed frame while high-frequency
+	// motion/progress messages are coalesced.
+	idlePending          bool
+	idleFrame            string
+	idleFrameValid       bool
+	idleRenderGeneration uint64
+	// progressDrawn is when the last visible frame was produced.
 	progressDrawn time.Time
 
 	// repeatMode controls queue behavior: off, all, one.
@@ -233,7 +233,7 @@ func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
 	go m.pruneCoverCache()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, discordTickCmd(), m.rgbStart())
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, m.startDiscordTick(), m.rgbStart())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -245,13 +245,18 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	// idle screens draw once the input settles instead of per event
 	immediate, schedule := m.frameDecision(message)
 	if immediate {
-		// a drawn frame satisfies a postponed one
+		// A visible frame is required after this message is applied. Invalidate
+		// any timer that may still be queued from the postponed frame.
+		if m.idlePending {
+			m.idleRenderGeneration++
+		}
 		m.idlePending = false
+		m.idleFrameValid = false
 	}
 	if schedule && !m.idlePending {
 		m.idlePending = true
-		m.idleSince = time.Now()
-		cmds = append(cmds, idleRenderTick())
+		m.idleRenderGeneration++
+		cmds = append(cmds, idleRenderTick(m.idleRenderGeneration))
 	}
 
 	// the notifications are pruned before anything else: no dialog and no
@@ -266,9 +271,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// idle rendering: a peaceful pause draws a single frame with everything
-	// that changed meanwhile
-	if _, ok := message.(idleRenderMsg); ok {
+	// A stale timer must not release a newer postponed frame.
+	if msg, ok := message.(idleRenderMsg); ok {
+		if !m.idlePending || msg.generation != m.idleRenderGeneration {
+			return m, nil
+		}
 		return m, m.settleIdle()
 	}
 
@@ -280,14 +287,32 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// the animation and the Discord keepalive are handled before any window:
-	// a window that swallows their tick would stop them for good
-	switch message.(type) {
+	// Timers that belong to the player or Discord are handled before any
+	// window, so a dialog cannot swallow their next tick.
+	switch msg := message.(type) {
+	case tracker.VolumeFadeMsg:
+		if m.tracker != nil {
+			m.tracker, cmd = m.tracker.Update(msg)
+		}
+		return m, cmd
+	case tracker.VolumeFadeStartMsg:
+		if m.tracker != nil {
+			return m, m.tracker.StartVolumeFade()
+		}
+		return m, nil
 	case rgbTickMsg:
 		return m, m.handleRgbTick()
 	case discordTickMsg:
+		if msg.generation != m.discordTickGeneration || !m.discordTickRunning {
+			return m, nil
+		}
+		if !discordConfig().Enabled {
+			m.stopDiscordTick()
+			return m, nil
+		}
+		m.discordTickRunning = false
 		m.discordSync()
-		return m, discordTickCmd()
+		return m, m.startDiscordTick()
 	case tea.KeyMsg, tea.MouseMsg:
 		// the user is here: the Discord card is shown again even after the
 		// AFK timeout hid it
@@ -446,6 +471,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackReadyMsg:
 		m.applyLoadedTrack(msg)
+		if m.tracker != nil {
+			return m, m.tracker.StartVolumeFade()
+		}
 		return m, nil
 
 	case rotorFeedbackResultMsg:
@@ -769,6 +797,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
+	if m.idlePending && m.idleFrameValid {
+		return m.idleFrame
+	}
+
 	var view string
 	if m.contextMenu != nil {
 		view = m.contextMenu.render(m.viewBody())
@@ -776,7 +808,11 @@ func (m *Model) View() string {
 		view = m.viewBody()
 	}
 	view = drawVersion(view)
-	return m.drawToasts(view)
+	view = m.drawToasts(view)
+	m.idleFrame = view
+	m.idleFrameValid = true
+	m.progressDrawn = time.Now()
+	return view
 }
 
 func (m *Model) viewBody() string {

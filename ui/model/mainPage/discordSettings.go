@@ -161,6 +161,10 @@ func (m *Model) discordApply() tea.Cmd {
 	m.saveConfig()
 	m.discordClear()
 	m.discordRefresh(m.tracker == nil || m.tracker.IsPlaying())
+	if discordConfig().Enabled {
+		return m.startDiscordTick()
+	}
+	m.stopDiscordTick()
 	return nil
 }
 
