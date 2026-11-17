@@ -8,3 +8,5 @@ Task 1: RED confirmed (EV_TRACK_DISLIKED undefined); GREEN confirmed (go test ./
 Task 1: complete (go test ./... -count=1, exit 0; 25 packages reported, no failures).
 
 Task 2: RED confirmed (missing feedback policy/command helpers); GREEN confirmed (focused tests pass). Task 2: complete (go test ./... -count=1, exit 0).
+
+Task 3: RED confirmed (missing async request/result helpers and success-only local-state application); GREEN confirmed (focused tests pass). Task 3: complete (go test ./... -count=1, exit 0).

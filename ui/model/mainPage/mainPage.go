@@ -61,6 +61,8 @@ type Model struct {
 	likedTracksMap    map[string]bool
 	dislikedTracksMap map[string]bool
 	cachedTracksMap   map[string]bool
+	// pendingLikeTracks prevents overlapping requests for the same track.
+	pendingLikeTracks map[string]bool
 	// downloadingTracks holds the tracks the user asked to save into the
 	// cache and that are still on their way
 	downloadingTracks map[string]bool
@@ -185,6 +187,7 @@ func New(mediaHandler handler.MediaHandler) *Model {
 	m.hotkeys.Start(p)
 	m.likedTracksMap = make(map[string]bool)
 	m.dislikedTracksMap = make(map[string]bool)
+	m.pendingLikeTracks = make(map[string]bool)
 	m.cachedTracksMap = make(map[string]bool)
 	m.downloadingTracks = make(map[string]bool)
 	// the reports kept while the network was down survive a restart
@@ -450,6 +453,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			log.Print(log.LVL_ERROR, "failed to send rotor %s feedback: %s", msg.eventType, msg.err)
 		}
 		return m, nil
+
+	case trackLikeResultMsg:
+		return m, m.applyTrackLikeResult(msg)
 
 	case trackDownloadedMsg:
 		return m, m.applyDownloadedTrack(msg)
