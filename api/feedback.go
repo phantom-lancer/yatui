@@ -21,6 +21,7 @@ const (
 	EV_TRACK_SKIPED   = TrackEventType(ROTOR_SKIP)
 	EV_TRACK_LIKED    = TrackEventType(ROTOR_LIKE)
 	EV_TRACK_UNLIKED  = TrackEventType(ROTOR_UNLIKE)
+	EV_TRACK_DISLIKED = TrackEventType(ROTOR_DISLIKE)
 )
 
 type RotorFeedbackEvent struct {
