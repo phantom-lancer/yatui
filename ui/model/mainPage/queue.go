@@ -203,7 +203,7 @@ func (m *Model) toggleQueue() {
 		m.queue = nil
 		return
 	}
-	m.queue = &queueModel{}
+	m.queue = &queueModel{dragFrom: -1}
 	m.isQueueActive = true
 }
 
@@ -331,12 +331,13 @@ func (m *Model) queueMouse(msg tea.MouseMsg) tea.Cmd {
 			break
 		}
 		if row, ok := layout.rowAt(msg.X, msg.Y); ok {
+			index := row + m.queue.offset
 			if m.queue.dragFrom >= 0 {
 				// the track is being dragged: the selection follows the
 				// pointer, so the place it is dropped at is visible
-				m.queue.index = row
-			} else if row != m.queue.index {
-				m.queue.index = row
+				m.queue.index = index
+			} else if index != m.queue.index {
+				m.queue.index = index
 			}
 		}
 
@@ -348,6 +349,7 @@ func (m *Model) queueMouse(msg tea.MouseMsg) tea.Cmd {
 		if !ok {
 			return nil
 		}
+		row += m.queue.offset
 
 		entries := m.queueEntries()
 		if row < len(entries) && entries[row].manual {
@@ -507,7 +509,7 @@ func (m *Model) queueView() string {
 		y:     y,
 		width: width,
 		rowY:  y + headerLines,
-		rows:  len(entries),
+		rows:  visibleEnd - m.queue.offset,
 		valid: true,
 	}
 

@@ -377,23 +377,7 @@ func (m *Model) loadPinnedAlbums(wg *sync.WaitGroup, block *menuBlock) {
 	if len(albums) > 0 {
 		block.items = append(block.items, playlist.ItemEmpty())
 		block.items = append(block.items, playlist.ItemCategory("pins:"))
-
-		var albumTracks []api.Track
-		for _, album := range albums {
-			for _, volume := range album.Volumes {
-				albumTracks = append(albumTracks, volume...)
-			}
-			if len(albumTracks) == 0 {
-				continue
-			}
-			block.items = append(block.items, &playlist.Item{
-				Name:    album.Title,
-				Kind:    playlist.ALBUMS,
-				Active:  true,
-				Subitem: true,
-				Tracks:  albumTracks,
-			})
-		}
+		block.items = append(block.items, pinnedAlbumItems(albums)...)
 	}
 }
 
@@ -446,4 +430,27 @@ func (m *Model) loadUserPlaylists(wg *sync.WaitGroup, block *menuBlock) {
 			})
 		}
 	}
+}
+
+// pinnedAlbumItems creates one playlist entry per pinned album. Kept separate
+// from the API loading so the grouping can be tested without network access.
+func pinnedAlbumItems(albums []api.Album) []*playlist.Item {
+	items := make([]*playlist.Item, 0, len(albums))
+	for _, album := range albums {
+		var tracks []api.Track
+		for _, volume := range album.Volumes {
+			tracks = append(tracks, volume...)
+		}
+		if len(tracks) == 0 {
+			continue
+		}
+		items = append(items, &playlist.Item{
+			Name:    album.Title,
+			Kind:    playlist.ALBUMS,
+			Active:  true,
+			Subitem: true,
+			Tracks:  tracks,
+		})
+	}
+	return items
 }
