@@ -142,6 +142,12 @@ func (m *Model) prevTrack() {
 }
 
 func (m *Model) nextTrack() {
+	m.nextTrackWithFeedback(true)
+}
+
+// nextTrackWithFeedback advances the queue and optionally reports the usual
+// skip/finished event. A radio dislike has already reported its own event.
+func (m *Model) nextTrackWithFeedback(sendFeedback bool) {
 	// tracks explicitly put into the queue always go first
 	for len(m.manualQueue) > 0 {
 		track := m.manualQueue[0]
@@ -184,7 +190,7 @@ func (m *Model) nextTrack() {
 	if m.currentPlaylistIndex >= 0 {
 		m.indicateCurrentTrackPlaying(false)
 		currentPlaylist := m.playlists.Items()[m.currentPlaylistIndex]
-		if currentPlaylist.Rotor && m.tracker.IsPlaying() {
+		if shouldSendNextTrackFeedback(sendFeedback, currentPlaylist.Rotor, m.tracker.IsPlaying()) && m.client != nil {
 			go m.client.RotorSessionFeedback(currentPlaylist.SessionId, m.feedbackOnTrack(currentPlaylist.SessionBatch))
 		}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/phantom-lancer/yatui/cache"
 	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/lastfm"
+	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/media/handler"
 	"github.com/phantom-lancer/yatui/ui/components/input"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
@@ -442,6 +443,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackReadyMsg:
 		m.applyLoadedTrack(msg)
+		return m, nil
+
+	case rotorFeedbackResultMsg:
+		if msg.err != nil {
+			log.Print(log.LVL_ERROR, "failed to send rotor %s feedback: %s", msg.eventType, msg.err)
+		}
 		return m, nil
 
 	case trackDownloadedMsg:

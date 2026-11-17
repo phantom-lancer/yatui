@@ -1,11 +1,41 @@
 package mainpage
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
 )
+
+type rotorFeedbackResultMsg struct {
+	eventType string
+	err       error
+}
+
+func rotorFeedbackCmd(send func(string, *api.RotorFeedback) error, sessionID, batchID string, event *api.RotorFeedbackEvent) tea.Cmd {
+	return func() tea.Msg {
+		if send == nil || event == nil {
+			return rotorFeedbackResultMsg{eventType: eventType(event), err: fmt.Errorf("rotor feedback sender is unavailable")}
+		}
+		return rotorFeedbackResultMsg{
+			eventType: event.Type,
+			err:       send(sessionID, api.NewFeedback(batchID, event)),
+		}
+	}
+}
+
+func eventType(event *api.RotorFeedbackEvent) string {
+	if event == nil {
+		return "unknown"
+	}
+	return event.Type
+}
+
+func shouldSendNextTrackFeedback(enabled, rotor, playing bool) bool {
+	return enabled && rotor && playing
+}
 
 func (m *Model) likePlayingTrack() tea.Cmd {
 	var currentPlaylist *playlist.Item
@@ -48,30 +78,36 @@ func (m *Model) dislikePlayingTrack() tea.Cmd {
 		return nil
 	}
 
-	// mark the track as disliked so that the player can show it
+	// The dislike is a Rotor event, not a local-only mark or a generic skip.
+	// It is sent before advancing, with the actual listening time.
 	m.dislikedTracksMap[track.Id] = true
 
 	if currentPlaylist != nil && currentPlaylist.Rotor {
-		if m.tracker.IsPlaying() {
-			go m.client.RotorSessionFeedback(currentPlaylist.SessionId, m.feedbackOnTrack(currentPlaylist.SessionBatch))
+		var cmds []tea.Cmd
+		if m.client != nil {
+			event := api.NewTrackFeedbackEvent(api.EV_TRACK_DISLIKED, track, m.tracker.Playtime().Seconds())
+			cmds = append(cmds, rotorFeedbackCmd(m.client.RotorSessionFeedback, currentPlaylist.SessionId, currentPlaylist.SessionBatch, event))
 		}
 
-		if m.likedTracksMap[track.Id] {
-			m.client.UnlikeTrack(track.Id)
-			delete(m.likedTracksMap, track.Id)
-
-			likedPlaylist, index := m.playlists.GetFirst(playlist.LIKES)
-			likedPlaylist.RemoveTrack(track.Id)
-			cmd := m.playlists.SetItem(index, likedPlaylist)
-			if m.playlists.SelectedItem().Kind == playlist.LIKES {
-				m.displayPlaylist(likedPlaylist)
+		if m.likedTracksMap[track.Id] && m.client != nil {
+			if err := m.client.UnlikeTrack(track.Id); err == nil {
+				delete(m.likedTracksMap, track.Id)
+				likedPlaylist, index := m.playlists.GetFirst(playlist.LIKES)
+				likedPlaylist.RemoveTrack(track.Id)
+				updateCmd := m.playlists.SetItem(index, likedPlaylist)
+				if m.playlists.SelectedItem().Kind == playlist.LIKES {
+					m.displayPlaylist(likedPlaylist)
+				}
+				cmds = append(cmds, updateCmd)
+			} else {
+				log.Print(log.LVL_ERROR, "failed to remove disliked track from Likes: %s", err)
 			}
-			m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
-			_ = cmd
 		}
 
-		m.nextTrack()
-		return nil
+		// The dislike event already describes this transition. Do not follow it
+		// with the normal skip/finished event from nextTrack.
+		m.nextTrackWithFeedback(false)
+		return tea.Batch(cmds...)
 	}
 
 	if m.likedTracksMap[track.Id] {
