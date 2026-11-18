@@ -7,6 +7,7 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/config"
+	"github.com/phantom-lancer/yatui/lastfm"
 )
 
 // fakeScrobbler records the calls instead of talking to Last.fm.
@@ -37,6 +38,19 @@ func withLastfm(t *testing.T, cfg *config.LastFM) {
 	previous := config.Current.LastFM
 	config.Current.LastFM = cfg
 	t.Cleanup(func() { config.Current.LastFM = previous })
+}
+
+func TestLastfmStatusShowsUnsentScrobbles(t *testing.T) {
+	withLastfm(t, &config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user", Enabled: true})
+
+	queue := lastfm.NewQueue("")
+	queue.Add(lastfm.Scrobble{Artist: "Artist", Title: "one"})
+	queue.Add(lastfm.Scrobble{Artist: "Artist", Title: "two"})
+
+	m := &Model{scrobbles: queue}
+	if got, want := m.lastfmStatus(), "user вкл · 2 скроббла не отправлено"; got != want {
+		t.Fatalf("status = %q, want %q", got, want)
+	}
 }
 
 func TestLastfmStatus(t *testing.T) {

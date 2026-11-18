@@ -1,6 +1,7 @@
 package mainpage
 
 import (
+	"fmt"
 	"os/exec"
 	"sync/atomic"
 	"time"
@@ -86,10 +87,35 @@ func (m *Model) lastfmStatus() string {
 		return "нет ключей"
 	case cfg.SessionKey == "":
 		return "войти"
-	case cfg.Enabled:
-		return cfg.Username + " вкл"
+	}
+
+	status := cfg.Username
+	if cfg.Enabled {
+		status += " вкл"
+	} else {
+		status += " выкл"
+	}
+
+	if m.scrobbles != nil {
+		if pending := m.scrobbles.Len(); pending > 0 {
+			status += fmt.Sprintf(" · %s не отправлено", pendingScrobblesLabel(pending))
+		}
+	}
+	return status
+}
+
+func pendingScrobblesLabel(n int) string {
+	lastTwo := n % 100
+	last := n % 10
+	switch {
+	case lastTwo >= 11 && lastTwo <= 14:
+		return fmt.Sprintf("%d скробблов", n)
+	case last == 1:
+		return fmt.Sprintf("%d скроббл", n)
+	case last >= 2 && last <= 4:
+		return fmt.Sprintf("%d скроббла", n)
 	default:
-		return cfg.Username + " выкл"
+		return fmt.Sprintf("%d скробблов", n)
 	}
 }
 

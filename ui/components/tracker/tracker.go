@@ -123,6 +123,7 @@ type Model struct {
 	playerContext        *oto.Context
 	player               *oto.Player
 	trackWrapper         *readWrapper
+	bufferedReader       *asyncPCMReader
 
 	program     *tea.Program
 	likesMap    *map[string]bool
@@ -808,8 +809,12 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	// the equalizer coefficients are computed for the real sample rate of
 	// the track
 	m.trackWrapper.SetEQRate(m.trackWrapper.SampleRate())
+	// The decoder, loudness meter and equalizer run ahead in a bounded worker.
+	// Oto only drains ready PCM and never waits for the network or MP3 decoder.
+	m.trackWrapper.deferEnded = true
+	m.bufferedReader = newAsyncPCMReader(m.trackWrapper)
 
-	m.player = m.playerContext.NewPlayer(m.trackWrapper)
+	m.player = m.playerContext.NewPlayer(m.bufferedReader)
 	m.player.SetVolume(0)
 	m.player.Play()
 	m.lyrics = lyrics
@@ -824,23 +829,28 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 func (m *Model) Stop() {
 	m.loading = false
 	m.volumeFadeGeneration++
-	if m.player == nil {
-		return
-	}
-
-	if m.player.IsPlaying() {
+	if m.player != nil && m.player.IsPlaying() {
 		m.player.SetVolume(0)
 		m.player.Pause()
 	}
 
-	if m.trackWrapper.trackBuffer.Error() != nil {
-		m.ShowError("track buffering")
+	if m.trackWrapper != nil && m.trackWrapper.trackBuffer != nil {
+		if err := m.trackWrapper.trackBuffer.Error(); err != nil {
+			m.ShowError("track buffering")
+		}
+		// Closing the compressed stream wakes the decoder worker if it is
+		// waiting for network data. Only then is it safe to join the worker.
+		m.trackWrapper.Close()
 	}
-
-	m.trackWrapper.Close()
-	m.player.Close()
-	m.player = nil
-	m.playtime += time.Since(m.playStarted)
+	if m.bufferedReader != nil {
+		_ = m.bufferedReader.Close()
+		m.bufferedReader = nil
+	}
+	if m.player != nil {
+		_ = m.player.Close()
+		m.player = nil
+		m.playtime += time.Since(m.playStarted)
+	}
 	m.paused = true
 }
 

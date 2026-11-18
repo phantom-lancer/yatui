@@ -76,6 +76,18 @@ func load() (Config, error) {
 		return defaultConfig, err
 	}
 
+	// Missing winter keys receive defaults, while an explicit intensity of
+	// zero remains the user's way to turn snowfall completely off.
+	var configFields map[string]yaml.Node
+	if yaml.Unmarshal(configContent, &configFields) == nil {
+		if _, ok := configFields["winter-intensity"]; !ok {
+			newConfig.WinterIntensity = defaultConfig.WinterIntensity
+		}
+		if _, ok := configFields["winter-garland"]; !ok {
+			newConfig.WinterGarland = defaultConfig.WinterGarland
+		}
+	}
+
 	if newConfig.VolumeStep == 0 {
 		newConfig.VolumeStep = defaultConfig.VolumeStep
 	}

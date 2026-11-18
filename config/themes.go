@@ -148,6 +148,25 @@ var themes = []Theme{
 			LyricsNext:        "#8A8AA0",
 		},
 	},
+	{
+		Name: "winter",
+		Colors: Colors{
+			Accent:            "#9AD9F5",
+			Error:             "#F08D9B",
+			Border:            "#56758D",
+			Background:        "#6b6b6b",
+			PlaylistSelection: "#233B4C",
+			ActiveText:        "#E9F7FF",
+			NormalText:        "#C5DCE8",
+			InactiveText:      "#718997",
+			TrackTitleText:    "#ECF7FD",
+			TrackVersionText:  "#A8C6D8",
+			TrackArtistText:   "#B8D0DD",
+			LyricsPrevious:    "#4F6877",
+			LyricsCurrent:     "#F0FAFF",
+			LyricsNext:        "#94B7C9",
+		},
+	},
 }
 
 // ThemeNames returns every known theme in switching order.

@@ -224,20 +224,24 @@ type Config struct {
 	// RgbFrameMs is how often the rgb theme repaints the window, in
 	// milliseconds: a smaller frame is smoother and costs more CPU. Zero
 	// means the default.
-	RgbFrameMs int `yaml:"rgb-frame-ms,omitempty"`
+	RgbFrameMs      int  `yaml:"rgb-frame-ms,omitempty"`
+	WinterIntensity int  `yaml:"winter-intensity"`
+	WinterGarland   bool `yaml:"winter-garland"`
 }
 
 var defaultConfig = Config{
-	BufferSize:     80,
-	RewindDuration: 5,
-	Volume:         0.5,
-	VolumeStep:     0.05,
-	ShowLyrics:     false,
-	CacheTracks:    CACHE_LIKED_ONLY,
-	CacheDir:       "",
-	SuppressErrors: false,
-	RgbSpeed:       5,
-	RgbFrameMs:     200,
+	BufferSize:      80,
+	RewindDuration:  5,
+	Volume:          0.5,
+	VolumeStep:      0.05,
+	ShowLyrics:      false,
+	CacheTracks:     CACHE_LIKED_ONLY,
+	CacheDir:        "",
+	SuppressErrors:  false,
+	RgbSpeed:        5,
+	RgbFrameMs:      200,
+	WinterIntensity: 2,
+	WinterGarland:   true,
 	Search: &Search{
 		Artists:   true,
 		Popular:   false,

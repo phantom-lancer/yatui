@@ -59,11 +59,15 @@ func (m *Model) applyTheme(name string) tea.Cmd {
 	}
 
 	m.showToast("Тема: " + name)
+	m.winterStop()
 
 	if name == "rgb" {
 		return m.rgbStart()
 	}
 	m.rgbRunning = false
+	if name == "winter" {
+		return m.winterStart()
+	}
 	return nil
 }
 
@@ -83,6 +87,7 @@ func (m *Model) themeReset() {
 		config.Current.DevColors = nil
 	}
 	m.rgbRunning = false
+	m.winterStop()
 	style.Apply(config.Current.Style)
 
 	m.tracker.RefreshStyle()
