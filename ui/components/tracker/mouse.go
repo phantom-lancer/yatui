@@ -86,15 +86,25 @@ func (m *Model) SeekTo(fraction float64) tea.Cmd {
 	if m.player == nil || m.trackWrapper == nil {
 		return nil
 	}
-	if fraction < 0 {
-		fraction = 0
-	}
-	if fraction > 1 {
-		fraction = 1
+	fraction = clamp01(fraction)
+	length := m.trackWrapper.Length()
+	if length <= 0 {
+		return nil
 	}
 
-	target := time.Duration(float64(m.track.DurationMs)*fraction) * time.Millisecond
-	return m.Rewind(target - m.Position())
+	// Scrubbing is an absolute position. Do not express it as a relative
+	// Rewind: the decoder queue may be ahead of the samples Oto has consumed.
+	target := int64(float64(length) * fraction)
+	target -= target % 4
+	m.player.SetVolume(0)
+	if _, err := m.player.Seek(target, io.SeekStart); err != nil {
+		m.trackWrapper.sendSeekError(err)
+		return nil
+	}
+	fraction = clamp01(float64(target) / float64(length))
+	m.progressFrac = fraction
+	m.trackWrapper.setProgress(fraction)
+	return nil
 }
 
 // SeekToStart moves the playback position to the beginning of the track

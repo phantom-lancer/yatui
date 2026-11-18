@@ -34,5 +34,9 @@ jobs:
       - name: test
         run: go test ./... -count=1
 
+      - name: test MP3 seek fork
+        run: go test ./... -count=1
+        working-directory: third_party/go-stream-mp3
+
       - name: build
         run: go build ./...

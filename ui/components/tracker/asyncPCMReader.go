@@ -11,11 +11,11 @@ import (
 
 const (
 	pcmPrefetchChunkSize = 16 * 1024
-	// About 3 seconds of PCM at 44.1 kHz, stereo S16.
-	// This bounded queue uses about 512 KiB, not a track-sized allocation.
-	pcmPrefetchChunks = 32
-	// Do not unmute playback until the decoder has a useful head start.
-	pcmStartupChunks = 8
+	// About 4.45 seconds of PCM at 44.1 kHz, stereo S16.
+	// The bounded queue uses about 768 KiB, independent of track length.
+	pcmPrefetchChunks = 48
+	// Keep about 1.1 seconds ready before fading in after start or seek.
+	pcmStartupChunks = 12
 )
 
 type pcmSource interface {

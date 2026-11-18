@@ -6,7 +6,61 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/phantom-lancer/yatui/config"
 )
+
+func TestWinterSlidersAreOnlyInAppearanceWhenWinterThemeIsActive(t *testing.T) {
+	previousStyle := config.Current.Style
+	t.Cleanup(func() { config.Current.Style = previousStyle })
+
+	m := &Model{}
+	config.Current.Style = &config.Style{Theme: "classic"}
+	for _, item := range m.buildSettings() {
+		if item.label == "Скорость снега" || item.label == "Плотность снега" {
+			t.Fatalf("winter slider %q is visible outside winter theme", item.label)
+		}
+	}
+
+	config.Current.Style = &config.Style{Theme: "winter"}
+	items := m.buildSettings()
+	themeIndex, speedIndex, densityIndex := -1, -1, -1
+	for i, item := range items {
+		switch item.label {
+		case "Тема":
+			themeIndex = i
+		case "Скорость снега":
+			speedIndex = i
+		case "Плотность снега":
+			densityIndex = i
+		}
+	}
+	if themeIndex < 0 || speedIndex != themeIndex+1 || densityIndex != speedIndex+1 {
+		t.Fatalf("winter sliders are not grouped under appearance theme: theme=%d speed=%d density=%d", themeIndex, speedIndex, densityIndex)
+	}
+}
+
+func TestSettingsSliderMapsMouseRange(t *testing.T) {
+	got := -1
+	m := &Model{settings: &settingsModel{
+		items: []settingItem{{
+			kind: settingSlider, sliderMin: 0, sliderMax: 100, sliderStep: 5,
+			sliderSet: func(value int) tea.Cmd { got = value; return nil },
+		}},
+		layout: settingsLayout{rowX: 0, rowWidth: 20, labelWidth: 5},
+	}}
+	m.setSettingsSliderAt(0, 7)
+	if got != 0 {
+		t.Fatalf("left edge mapped to %d, want 0", got)
+	}
+	m.setSettingsSliderAt(0, 19)
+	if got != 100 {
+		t.Fatalf("right edge mapped to %d, want 100", got)
+	}
+	if width := ansi.StringWidth(renderSettingsSlider(50, 0, 100, 32)); width > 32 {
+		t.Fatalf("slider exceeds its cell width: %d", width)
+	}
+}
 
 func TestSettingsNavigation(t *testing.T) {
 	s := &settingsModel{

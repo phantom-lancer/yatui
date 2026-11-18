@@ -97,23 +97,35 @@ func (m *Model) likeSelectedTrack() tea.Cmd {
 // dislikePlayingTrack removes the like (if any) from the playing track
 // and, while listening to "my wave", skips to the next track.
 func (m *Model) dislikePlayingTrack() tea.Cmd {
-	if m.tracker.IsStoped() {
+	if m.tracker == nil || m.tracker.IsStoped() {
 		return nil
 	}
 
 	var currentPlaylist *playlist.Item
-	if m.currentPlaylistIndex >= 0 {
-		currentPlaylist = m.playlists.Items()[m.currentPlaylistIndex]
+	if m.playlists != nil {
+		items := m.playlists.Items()
+		if m.currentPlaylistIndex >= 0 && m.currentPlaylistIndex < len(items) {
+			currentPlaylist = items[m.currentPlaylistIndex]
+		}
 	}
 
 	track := m.tracker.CurrentTrack()
-	if track == nil {
+	if track == nil || track.Id == "" {
 		return nil
 	}
 
-	// The dislike is a Rotor event, not a local-only mark or a generic skip.
-	// It is sent before advancing, with the actual listening time.
+	// A non-Rotor playlist has no server-side dislike endpoint. Keep the local
+	// rejection visible instead of silently doing nothing.
+	if m.dislikedTracksMap == nil {
+		m.dislikedTracksMap = make(map[string]bool)
+	}
 	m.dislikedTracksMap[track.Id] = true
+	m.idleFrameValid = false
+	notice := "Дизлайк локально: " + track.Title
+	if currentPlaylist != nil && currentPlaylist.Rotor {
+		notice = "Не нравится: " + track.Title
+	}
+	m.showToast(notice)
 
 	if currentPlaylist != nil && currentPlaylist.Rotor {
 		var cmds []tea.Cmd
@@ -141,7 +153,7 @@ func (m *Model) dislikePlayingTrack() tea.Cmd {
 
 // dislikeTrackAt dislikes the track at the given index of the tracks list.
 func (m *Model) dislikeTrackAt(index int) tea.Cmd {
-	if m.currentPlaylistIndex < 0 || len(m.playlists.Items()) == 0 {
+	if m.playlists == nil || m.currentPlaylistIndex < 0 || len(m.playlists.Items()) == 0 {
 		return nil
 	}
 
@@ -156,13 +168,18 @@ func (m *Model) dislikeTrackAt(index int) tea.Cmd {
 	}
 
 	track := items[index].Track
+	if selectedPlaylist.Rotor && m.tracker != nil && m.tracker.CurrentTrack() != nil &&
+		m.tracker.CurrentTrack().Id == track.Id {
+		return m.dislikePlayingTrack()
+	}
+	if m.dislikedTracksMap == nil {
+		m.dislikedTracksMap = make(map[string]bool)
+	}
 	m.dislikedTracksMap[track.Id] = true
+	m.idleFrameValid = false
+	m.showToast("Дизлайк локально: " + track.Title)
 
 	if selectedPlaylist.Rotor {
-		if m.tracker.CurrentTrack() != nil && m.tracker.CurrentTrack().Id == track.Id {
-			return m.dislikePlayingTrack()
-		}
-
 		if m.likedTracksMap[track.Id] {
 			return m.requestTrackLike(track, false, nil, false)
 		}

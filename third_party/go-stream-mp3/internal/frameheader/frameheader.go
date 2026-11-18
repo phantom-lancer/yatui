@@ -1,0 +1,381 @@
+// Copyright 2017 Hajime Hoshi
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package frameheader
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"time"
+)
+
+// UnexpectedEOFError reports a source that ran out part-way through a frame:
+// a header, side information or main data cut short. The decoder treats it
+// as the end of the audio.
+type UnexpectedEOFError struct {
+	At string
+}
+
+func (u *UnexpectedEOFError) Error() string {
+	return "mp3: unexpected EOF at " + u.At
+}
+
+// Version is the MPEG audio version field of a frame header.
+type Version int
+
+const (
+	Version2_5      Version = 0
+	VersionReserved Version = 1
+	Version2        Version = 2
+	Version1        Version = 3
+)
+
+// Layer is the layer field of a frame header.
+type Layer int
+
+const (
+	LayerReserved Layer = 0
+	Layer3        Layer = 1
+	Layer2        Layer = 2
+	Layer1        Layer = 3
+)
+
+// Mode is the channel mode field of a frame header.
+type Mode int
+
+const (
+	ModeStereo        Mode = 0
+	ModeJointStereo   Mode = 1
+	ModeDualChannel   Mode = 2
+	ModeSingleChannel Mode = 3
+)
+
+// SamplingFrequency is the sampling frequency index field of a frame header:
+// 0, 1, 2 select 44.1, 48 and 32 kHz for MPEG-1, halved for MPEG-2 and
+// quartered for MPEG-2.5.
+type SamplingFrequency int
+
+const SamplingFrequencyReserved SamplingFrequency = 3
+
+const (
+	// SamplesPerGranule is the number of frequency lines, and PCM samples per
+	// channel, one granule decodes to.
+	SamplesPerGranule = 576
+	granulesMpeg1     = 2
+)
+
+// A FrameHeader is the 32-bit MPEG audio frame header.
+type FrameHeader uint32
+
+// ID returns this header's ID stored in position 20,19
+func (f FrameHeader) ID() Version {
+	return Version((f & 0x00180000) >> 19)
+}
+
+// Layer returns the mpeg layer of this frame stored in position 18,17
+func (f FrameHeader) Layer() Layer {
+	return Layer((f & 0x00060000) >> 17)
+}
+
+// ProtectionBit returns the protection bit stored in position 16
+func (f FrameHeader) ProtectionBit() int {
+	return int(f&0x00010000) >> 16
+}
+
+// BirateIndex returns the bitrate index stored in position 15,12
+func (f FrameHeader) BitrateIndex() int {
+	return int(f&0x0000f000) >> 12
+}
+
+// SamplingFrequency returns the SamplingFrequency in Hz stored in position 11,10
+func (f FrameHeader) SamplingFrequency() SamplingFrequency {
+	return SamplingFrequency(int(f&0x00000c00) >> 10)
+}
+
+func (f FrameHeader) SamplingFrequencyValue() (int, error) {
+	// LowSamplingFrequency returns 0 or 1, so conversion to uint is safe
+	lsf := uint(f.LowSamplingFrequency()) //nolint:gosec // LowSamplingFrequency returns 0 or 1
+	switch f.SamplingFrequency() {
+	case 0:
+		return 44100 >> lsf, nil
+	case 1:
+		return 48000 >> lsf, nil
+	case 2:
+		return 32000 >> lsf, nil
+	case SamplingFrequencyReserved:
+		return 0, errors.New("mp3: frame header has invalid sample frequency")
+	}
+	return 0, errors.New("mp3: frame header has invalid sample frequency")
+}
+
+// PaddingBit returns the padding bit stored in position 9
+func (f FrameHeader) PaddingBit() int {
+	return int(f&0x00000200) >> 9
+}
+
+// PrivateBit returns the private bit stored in position 8 - this bit may be used to store arbitrary data to be used
+// by an application
+func (f FrameHeader) PrivateBit() int {
+	return int(f&0x00000100) >> 8
+}
+
+// Mode returns the channel mode, stored in position 7,6
+func (f FrameHeader) Mode() Mode {
+	return Mode((f & 0x000000c0) >> 6)
+}
+
+// modeExtension returns the mode_extension - for use with Joint Stereo - stored in position 4,5
+func (f FrameHeader) modeExtension() int {
+	return int(f&0x00000030) >> 4
+}
+
+// UseMSStereo returns a boolean value indicating whether the frame uses middle/side stereo.
+func (f FrameHeader) UseMSStereo() bool {
+	if f.Mode() != ModeJointStereo {
+		return false
+	}
+	return f.modeExtension()&0x2 != 0
+}
+
+// UseIntensityStereo returns a boolean value indicating whether the frame uses intensity stereo.
+func (f FrameHeader) UseIntensityStereo() bool {
+	if f.Mode() != ModeJointStereo {
+		return false
+	}
+	return f.modeExtension()&0x1 != 0
+}
+
+// Copyright returns whether or not this recording is copywritten - stored in position 3
+func (f FrameHeader) Copyright() int {
+	return int(f&0x00000008) >> 3
+}
+
+// OriginalOrCopy returns whether or not this is an Original recording or a copy of one - stored in position 2
+func (f FrameHeader) OriginalOrCopy() int {
+	return int(f&0x00000004) >> 2
+}
+
+// Emphasis returns emphasis - the emphasis indication is here to tell the decoder that the file must be de-emphasized - stored in position 0,1
+func (f FrameHeader) Emphasis() int {
+	return int(f&0x00000003) >> 0
+}
+
+// LowSamplingFrequency returns whether the frame is encoded in a low sampling frequency => 0 = MPEG-1, 1 = MPEG-2/2.5
+func (f FrameHeader) LowSamplingFrequency() int {
+	if f.ID() == Version1 {
+		return 0
+	}
+	return 1
+}
+
+func (f FrameHeader) BytesPerFrame() int {
+	return SamplesPerGranule * f.Granules() * 4
+}
+
+func (f FrameHeader) Granules() int {
+	//nolint:gosec // LowSamplingFrequency returns 0 or 1, safe for uint conversion
+	return granulesMpeg1 >> uint(f.LowSamplingFrequency()) // MPEG2 uses only 1 granule
+}
+
+// SamplesPerFrame returns the number of samples per frame.
+// For MPEG1 Layer 3: 1152 samples (576 * 2 granules)
+// For MPEG2/2.5 Layer 3: 576 samples (576 * 1 granule)
+func (f FrameHeader) SamplesPerFrame() int {
+	return SamplesPerGranule * f.Granules()
+}
+
+// FrameDuration returns the duration of a single frame.
+func (f FrameHeader) FrameDuration() time.Duration {
+	sampleRate, err := f.SamplingFrequencyValue()
+	if err != nil {
+		return 0
+	}
+	return time.Duration(int64(time.Second) * int64(f.SamplesPerFrame()) / int64(sampleRate))
+}
+
+// BytesPerSecond returns the decoded bytes per second.
+// This is the sample rate multiplied by 4 (stereo 16-bit = 4 bytes per sample).
+func (f FrameHeader) BytesPerSecond() int {
+	sampleRate, err := f.SamplingFrequencyValue()
+	if err != nil {
+		return 0
+	}
+	return sampleRate * 4
+}
+
+// IsValid returns a boolean value indicating whether the header is valid or not.
+// This library only supports MP3 (MPEG Layer 3), so Layer 1 and Layer 2 headers
+// are rejected to prevent false sync detection on non-MP3 data.
+func (f FrameHeader) IsValid() bool {
+	const sync = 0xffe00000
+	if (f & sync) != sync {
+		return false
+	}
+	if f.ID() == VersionReserved {
+		return false
+	}
+	if f.BitrateIndex() == 15 {
+		return false
+	}
+	if f.SamplingFrequency() == SamplingFrequencyReserved {
+		return false
+	}
+	if f.Layer() != Layer3 {
+		return false
+	}
+	if f.Emphasis() == 2 {
+		return false
+	}
+	return true
+}
+
+func (f FrameHeader) Bitrate() int {
+	bitrates := [2][3][16]int{
+		{
+			// MPEG 1 Layer 3
+			{0, 32000, 40000, 48000, 56000, 64000, 80000, 96000,
+				112000, 128000, 160000, 192000, 224000, 256000, 320000},
+
+			// MPEG 1 Layer 2
+			{0, 32000, 48000, 56000, 64000, 80000, 96000, 112000,
+				128000, 160000, 192000, 224000, 256000, 320000, 384000},
+
+			// MPEG 1 Layer 1
+			{0, 32000, 64000, 96000, 128000, 160000, 192000, 224000,
+				256000, 288000, 320000, 352000, 384000, 416000, 448000},
+		},
+		{
+			// MPEG2 2 Layer 3
+			{0, 8000, 16000, 24000, 32000, 40000, 48000, 56000,
+				64000, 80000, 96000, 112000, 128000, 144000, 160000},
+
+			// MPEG 2 Layer 2
+			{0, 8000, 16000, 24000, 32000, 40000, 48000, 56000,
+				64000, 80000, 96000, 112000, 128000, 144000, 160000},
+
+			// MPEG 2 Layer 1
+			{0, 32000, 48000, 56000, 64000, 80000, 96000, 112000,
+				128000, 144000, 160000, 176000, 192000, 224000, 256000},
+		},
+	}
+	return bitrates[f.LowSamplingFrequency()][f.Layer()-1][f.BitrateIndex()]
+}
+
+func (f FrameHeader) FrameSize() (int, error) {
+	freq, err := f.SamplingFrequencyValue()
+	if err != nil {
+		return 0, err
+	}
+	//nolint:gosec // LowSamplingFrequency returns 0 or 1, safe for uint conversion
+	size := ((144*f.Bitrate())/freq +
+		f.PaddingBit()) >> uint(f.LowSamplingFrequency())
+	return size, nil
+}
+
+func (f FrameHeader) SideInfoSize() int {
+	mono := f.Mode() == ModeSingleChannel
+	var sideinfoSize int
+	if f.LowSamplingFrequency() == 1 {
+		if mono {
+			sideinfoSize = 9
+		} else {
+			sideinfoSize = 17
+		}
+	} else {
+		if mono {
+			sideinfoSize = 17
+		} else {
+			sideinfoSize = 32
+		}
+	}
+	return sideinfoSize
+}
+
+func (f FrameHeader) NumberOfChannels() int {
+	if f.Mode() == ModeSingleChannel {
+		return 1
+	}
+	return 2
+}
+
+// MaxSyncSearchBytes is the maximum number of bytes to scan when searching
+// for a valid frame header sync word. This prevents excessive scanning on
+// non-MP3 files or corrupted data. 64KB matches FFmpeg and mpg123 defaults.
+const MaxSyncSearchBytes = 64 * 1024
+
+// SyncSearchLimitError is returned when the sync search limit is exceeded
+// without finding a valid frame header.
+type SyncSearchLimitError struct {
+	BytesSearched int64
+}
+
+func (e *SyncSearchLimitError) Error() string {
+	return fmt.Sprintf("mp3: no valid frame header found within %d bytes", e.BytesSearched)
+}
+
+type FullReader interface {
+	ReadFull([]byte) (int, error)
+}
+
+func Read(source FullReader, position int64) (h FrameHeader, startPosition int64, err error) {
+	buf := make([]byte, 4)
+	if n, err := source.ReadFull(buf); n < 4 {
+		if errors.Is(err, io.EOF) {
+			if n == 0 {
+				// Expected EOF
+				return 0, 0, io.EOF
+			}
+			return 0, 0, &UnexpectedEOFError{At: "readHeader (1)"}
+		}
+		return 0, 0, err
+	}
+
+	b1 := uint32(buf[0])
+	b2 := uint32(buf[1])
+	b3 := uint32(buf[2])
+	b4 := uint32(buf[3])
+	header := FrameHeader((b1 << 24) | (b2 << 16) | (b3 << 8) | (b4 << 0))
+	bytesSearched := int64(4)
+	for !header.IsValid() {
+		if bytesSearched >= MaxSyncSearchBytes {
+			return 0, 0, &SyncSearchLimitError{BytesSearched: bytesSearched}
+		}
+
+		b1 = b2
+		b2 = b3
+		b3 = b4
+
+		buf := make([]byte, 1)
+		if _, err := source.ReadFull(buf); err != nil {
+			if errors.Is(err, io.EOF) {
+				return 0, 0, &UnexpectedEOFError{At: "readHeader (2)"}
+			}
+			return 0, 0, err
+		}
+		b4 = uint32(buf[0])
+		header = FrameHeader((b1 << 24) | (b2 << 16) | (b3 << 8) | (b4 << 0))
+		position++
+		bytesSearched++
+	}
+
+	// If we get here we've found the sync word, and can decode the header
+	// which is in the low 20 bits of the 32-bit sync+header word.
+
+	if header.BitrateIndex() == 0 {
+		return 0, 0, fmt.Errorf("mp3: free bitrate format is not supported. Header word is 0x%08x at position %d",
+			header, position)
+	}
+	return header, position, nil
+}

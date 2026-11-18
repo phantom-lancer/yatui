@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/phantom-lancer/yatui/config"
@@ -37,15 +38,18 @@ func TestWinterGarlandUsesExistingBlankCells(t *testing.T) {
 func TestWinterAnimationStopsWhenEffectsAreOff(t *testing.T) {
 	previousStyle := config.Current.Style
 	previousIntensity := config.Current.WinterIntensity
+	previousDensity := config.Current.WinterDensity
 	previousGarland := config.Current.WinterGarland
 	t.Cleanup(func() {
 		config.Current.Style = previousStyle
 		config.Current.WinterIntensity = previousIntensity
+		config.Current.WinterDensity = previousDensity
 		config.Current.WinterGarland = previousGarland
 	})
 
 	config.Current.Style = &config.Style{Theme: "winter"}
 	config.Current.WinterIntensity = 0
+	config.Current.WinterDensity = 0
 	config.Current.WinterGarland = false
 
 	m := &Model{}
@@ -67,25 +71,106 @@ func TestWinterSnowIntensityControlsParticleCount(t *testing.T) {
 	if got := len(winterSnowPositions(120, 40, 12, 0)); got != 0 {
 		t.Fatalf("disabled snow produced %d particles", got)
 	}
-	low := len(winterSnowPositions(120, 40, 12, 1))
-	high := len(winterSnowPositions(120, 40, 12, 3))
+	low := len(winterSnowPositions(120, 40, 12, 10))
+	high := len(winterSnowPositions(120, 40, 12, 80))
 	if low == 0 || high <= low || high > 180 {
 		t.Fatalf("unexpected particle counts: low=%d high=%d", low, high)
+	}
+}
+
+func TestWinterSpeedChangesSnowPosition(t *testing.T) {
+	slow := winterSnowPositionsAtSpeed(100, 40, 1, 45, 10)
+	fast := winterSnowPositionsAtSpeed(100, 40, 1, 45, 100)
+	if len(slow) == 0 || len(fast) == 0 {
+		t.Fatal("both speeds must produce snow")
+	}
+	if equalSnowPositions(slow, fast) {
+		t.Fatal("snow speed slider does not change particle positions")
+	}
+}
+
+func equalSnowPositions(a, b map[int]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key := range a {
+		if _, ok := b[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func TestWinterClickBurstAndDragTrailAreBounded(t *testing.T) {
+	previousStyle := config.Current.Style
+	previousDensity := config.Current.WinterDensity
+	previousGarland := config.Current.WinterGarland
+	t.Cleanup(func() {
+		config.Current.Style = previousStyle
+		config.Current.WinterDensity = previousDensity
+		config.Current.WinterGarland = previousGarland
+	})
+	config.Current.Style = &config.Style{Theme: "winter"}
+	config.Current.WinterDensity = 0
+	config.Current.WinterGarland = false
+
+	m := &Model{width: 100, height: 40}
+	m.handleWinterMouse(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 50, Y: 20})
+	if len(m.winterParticles) != 12 || !m.winterRunning {
+		t.Fatalf("click burst: particles=%d running=%v", len(m.winterParticles), m.winterRunning)
+	}
+	m.handleWinterMouse(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 52, Y: 20})
+	if len(m.winterParticles) != 13 {
+		t.Fatalf("drag trail added no particle: %d", len(m.winterParticles))
+	}
+	m.handleWinterMouse(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft})
+	if m.winterPointerDown {
+		t.Fatal("mouse release did not stop the trail")
+	}
+	for i := 0; i < 24; i++ {
+		m.advanceWinterParticles()
+	}
+	if len(m.winterParticles) != 0 {
+		t.Fatalf("expired interaction particles remain: %d", len(m.winterParticles))
+	}
+}
+
+func TestWinterInteractionOverlayPreservesGeometry(t *testing.T) {
+	previousStyle := config.Current.Style
+	previousDensity := config.Current.WinterDensity
+	previousGarland := config.Current.WinterGarland
+	t.Cleanup(func() {
+		config.Current.Style = previousStyle
+		config.Current.WinterDensity = previousDensity
+		config.Current.WinterGarland = previousGarland
+	})
+	config.Current.Style = &config.Style{Theme: "winter"}
+	config.Current.WinterDensity = 0
+	config.Current.WinterGarland = false
+
+	view := "          \nTEXT"
+	particles := []winterParticle{{x: 3, y: 0, life: 2}}
+	got := drawWinterOverlayWithParticles(view, 1, particles)
+	if ansi.StringWidth(strings.Split(got, "\n")[0]) != 10 || !strings.Contains(got, "✧") || !strings.Contains(got, "TEXT") {
+		t.Fatalf("particle overlay changed geometry or missed spark: %q", got)
 	}
 }
 
 func TestWinterGarlandFindsFreeRowAfterResize(t *testing.T) {
 	previousStyle := config.Current.Style
 	previousIntensity := config.Current.WinterIntensity
+	previousDensity := config.Current.WinterDensity
 	previousGarland := config.Current.WinterGarland
 	t.Cleanup(func() {
 		config.Current.Style = previousStyle
 		config.Current.WinterIntensity = previousIntensity
+		config.Current.WinterDensity = previousDensity
 		config.Current.WinterGarland = previousGarland
 	})
 
 	config.Current.Style = &config.Style{Theme: "winter"}
 	config.Current.WinterIntensity = 0
+	config.Current.WinterDensity = 0
 	config.Current.WinterGarland = true
 
 	view := "TITLE\n                \nBODY"

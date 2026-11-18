@@ -3,6 +3,7 @@ package tracker
 import (
 	"bytes"
 	"io"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -78,6 +79,53 @@ func (s *delayedPCMSource) sendEnded() {
 	select {
 	case s.ended <- struct{}{}:
 	default:
+	}
+}
+
+func TestAsyncPCMReaderUsesAbsoluteSeekPosition(t *testing.T) {
+	data := make([]byte, 128)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	source := newDelayedPCMSource(data)
+	reader := newAsyncPCMReader(source)
+	defer func() {
+		select {
+		case <-source.release:
+		default:
+			close(source.release)
+		}
+		_ = reader.Close()
+	}()
+
+	select {
+	case <-source.started:
+	case <-time.After(time.Second):
+		t.Fatal("decoder worker did not start")
+	}
+
+	const target = 64
+	if pos, err := reader.Seek(target, io.SeekStart); err != nil || pos != target {
+		t.Fatalf("absolute seek = %d, %v; want %d", pos, err, target)
+	}
+	if got := math.Float64frombits(reader.progress.Load()); got != 0.5 {
+		t.Fatalf("progress after seek = %v, want 0.5", got)
+	}
+
+	close(source.release)
+	want := data[target:]
+	dst := make([]byte, len(want))
+	deadline := time.After(time.Second)
+	for {
+		n, err := reader.Read(dst)
+		if n == len(want) && err == nil && bytes.Equal(dst, want) {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("PCM after absolute seek = %v, n=%d err=%v; want %v", dst, n, err, want)
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 

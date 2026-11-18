@@ -45,3 +45,5 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )
+
+replace github.com/dece2183/go-stream-mp3 => ./third_party/go-stream-mp3

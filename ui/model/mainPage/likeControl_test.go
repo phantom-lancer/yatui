@@ -6,6 +6,24 @@ import (
 	"github.com/phantom-lancer/yatui/api"
 )
 
+func TestDislikeInOrdinaryPlaylistIsVisibleLocally(t *testing.T) {
+	m := &Model{currentPlaylistIndex: 0}
+	m.playlists = testPlaylists(t, []string{"playlist"})
+	selected := m.playlists.SelectedItem()
+	selected.Tracks = []api.Track{testTrack("1", "Track One")}
+	m.playlists.SetItem(0, selected)
+	m.tracklist = testTracklist(t, []string{"Track One"})
+
+	m.dislikeTrackAt(0)
+
+	if !m.dislikedTracksMap["1"] {
+		t.Fatal("ordinary playlist dislike was not recorded locally")
+	}
+	if len(m.toasts) == 0 || m.toasts[len(m.toasts)-1].text != "Дизлайк локально: Track One" {
+		t.Fatalf("missing honest dislike notice: %+v", m.toasts)
+	}
+}
+
 func TestNextTrackFeedbackCanBeSuppressed(t *testing.T) {
 	tests := []struct {
 		name     string

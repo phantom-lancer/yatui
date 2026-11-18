@@ -94,6 +94,37 @@ func TestNextTracksAreShownInTheTrackList(t *testing.T) {
 	}
 }
 
+func TestQueueRefreshUsesVisiblePlaylist(t *testing.T) {
+	m := &Model{width: 100, height: 40, currentPlaylistIndex: 0}
+	m.playlists = testPlaylists(t, []string{"playing source", "visible tab"})
+	m.playlists.Select(1)
+	m.manualQueue = []api.Track{testTrack("queued", "Queued track")}
+	m.tracklist = testTracklist(t, []string{"visible track"})
+
+	visible := m.playlists.SelectedItem()
+	visible.Tracks = []api.Track{testTrack("visible", "Visible track")}
+	m.playlists.SetItem(1, visible)
+	m.refreshQueue()
+
+	items := m.tracklist.Items()
+	if len(items) != 2 || !items[0].IsNext || items[0].Track.Id != "queued" {
+		t.Fatalf("manual queue is not visible above the selected tab: %+v", items)
+	}
+	if items[1].Track.Id != "visible" {
+		t.Fatalf("visible playlist was replaced by the playing source: %+v", items)
+	}
+}
+
+func TestProgressRectFractionUsesBothEndpoints(t *testing.T) {
+	r := Rect{X: 10, Width: 11, Height: 1}
+	if got := r.fraction(10); got != 0 {
+		t.Fatalf("left endpoint = %v, want 0", got)
+	}
+	if got := r.fraction(20); got != 1 {
+		t.Fatalf("right endpoint = %v, want 1", got)
+	}
+}
+
 // TestWaveSettingsSummary checks the description of the settings of the wave.
 func TestWaveSettingsSummary(t *testing.T) {
 	previous := config.Current.Wave

@@ -225,13 +225,15 @@ type Config struct {
 	// milliseconds: a smaller frame is smoother and costs more CPU. Zero
 	// means the default.
 	RgbFrameMs       int  `yaml:"rgb-frame-ms,omitempty"`
-	WinterIntensity  int  `yaml:"winter-intensity"`
+	WinterIntensity  int  `yaml:"winter-intensity"` // legacy setting kept for old configs
 	WinterGarland    bool `yaml:"winter-garland"`
+	WinterSpeed      int  `yaml:"winter-speed"`
+	WinterDensity    int  `yaml:"winter-density"`
 	PreloadNextTrack bool `yaml:"preload-next-track"`
 }
 
 var defaultConfig = Config{
-	BufferSize:       180,
+	BufferSize:       240,
 	RewindDuration:   5,
 	Volume:           0.5,
 	VolumeStep:       0.05,
@@ -243,6 +245,8 @@ var defaultConfig = Config{
 	RgbFrameMs:       200,
 	WinterIntensity:  2,
 	WinterGarland:    true,
+	WinterSpeed:      50,
+	WinterDensity:    40,
 	PreloadNextTrack: true,
 	Search: &Search{
 		Artists:   true,
