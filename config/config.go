@@ -89,6 +89,39 @@ func load() (Config, error) {
 		if _, ok := configFields["preload-next-track"]; !ok {
 			newConfig.PreloadNextTrack = defaultConfig.PreloadNextTrack
 		}
+		if _, ok := configFields["winter-speed"]; !ok {
+			newConfig.WinterSpeed = defaultConfig.WinterSpeed
+		}
+		if _, ok := configFields["winter-density"]; !ok {
+			// Preserve the old 0..3 snow intensity when migrating an existing config.
+			switch newConfig.WinterIntensity {
+			case 0:
+				newConfig.WinterDensity = 0
+			case 1:
+				newConfig.WinterDensity = 20
+			case 2:
+				newConfig.WinterDensity = 40
+			case 3:
+				newConfig.WinterDensity = 75
+			default:
+				newConfig.WinterDensity = defaultConfig.WinterDensity
+			}
+		}
+	}
+
+	if newConfig.BufferSize <= 0 {
+		newConfig.BufferSize = defaultConfig.BufferSize
+	} else if newConfig.BufferSize < 180 {
+		newConfig.BufferSize = 180
+	} else if newConfig.BufferSize > 500 {
+		newConfig.BufferSize = 500
+	}
+
+	if newConfig.WinterSpeed < 10 || newConfig.WinterSpeed > 100 {
+		newConfig.WinterSpeed = defaultConfig.WinterSpeed
+	}
+	if newConfig.WinterDensity < 0 || newConfig.WinterDensity > 100 {
+		newConfig.WinterDensity = defaultConfig.WinterDensity
 	}
 
 	if newConfig.VolumeStep == 0 {

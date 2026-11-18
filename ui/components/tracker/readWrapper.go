@@ -62,7 +62,7 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	w.trackDone = false
 	w.deferEnded = false
 	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(0))
-	w.decodedPosition = 0
+	atomic.StoreInt64(&w.decodedPosition, 0)
 	w.durationMs = 0
 	if track != nil {
 		w.durationMs = track.DurationMs
@@ -136,7 +136,7 @@ func (w *readWrapper) measureLoudness() {
 		return
 	}
 	w.decoder = decoder
-	w.decodedPosition = 0
+	atomic.StoreInt64(&w.decodedPosition, 0)
 
 	w.normalization = meter.normalization()
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
@@ -262,7 +262,7 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 
 	n, err = w.decoder.Read(dest)
 	if n > 0 {
-		w.decodedPosition += int64(n)
+		atomic.AddInt64(&w.decodedPosition, int64(n))
 	}
 	if err != nil && err != io.EOF {
 		if w.trackBuffer.Error() != nil {
@@ -326,7 +326,7 @@ func (w *readWrapper) Seek(offset int64, whence int) (int64, error) {
 	pos, err := w.decoder.Seek(offset, whence)
 	if err == nil {
 		w.trackDone = false
-		w.decodedPosition = pos
+		atomic.StoreInt64(&w.decodedPosition, pos)
 		if w.deferEnded {
 			atomic.StoreUint64(&w.playbackProgress, math.Float64bits(w.SourceProgress()))
 		}
@@ -334,27 +334,40 @@ func (w *readWrapper) Seek(offset int64, whence int) (int64, error) {
 	return pos, err
 }
 
+func pcmLengthBytes(durationMs, sampleRate int) int64 {
+	if durationMs <= 0 || sampleRate <= 0 {
+		return 0
+	}
+	// MP3 decoder offsets and output positions are PCM bytes. Decoder output
+	// is always stereo S16, so each sample frame occupies 4 bytes.
+	return int64(float64(durationMs) * float64(sampleRate) * 4 / 1000)
+}
+
 func (w *readWrapper) Length() int64 {
+	if w.decoder != nil {
+		return pcmLengthBytes(w.durationMs, w.decoder.SampleRate())
+	}
 	if w.trackBuffer == nil {
 		return 0
 	}
 	return w.trackBuffer.Length()
 }
 
-// SourceProgress estimates decoded PCM position from the track duration.
-// The MP3 decoder's Length reports compressed source bytes, not PCM bytes.
+// SourceProgress estimates decoded PCM position from track duration.
+// Calling Decoder.Length can require scanning an MP3 without a Xing header,
+// so use the duration already supplied by the API instead.
 func (w *readWrapper) SourceProgress() float64 {
-	if w.decoder == nil || w.durationMs <= 0 {
+	if w.decoder == nil {
 		if w.trackBuffer == nil {
 			return 0
 		}
 		return w.trackBuffer.Progress()
 	}
-	totalPCMBytes := float64(w.durationMs) * float64(w.decoder.SampleRate()) * 4 / 1000
+	totalPCMBytes := float64(pcmLengthBytes(w.durationMs, w.decoder.SampleRate()))
 	if totalPCMBytes <= 0 {
 		return 0
 	}
-	return clampPCMProgress(float64(w.decodedPosition) / totalPCMBytes)
+	return clampPCMProgress(float64(atomic.LoadInt64(&w.decodedPosition)) / totalPCMBytes)
 }
 
 func clampPCMProgress(value float64) float64 {

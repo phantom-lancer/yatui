@@ -108,6 +108,9 @@ func (m *Model) applySavedEQ() {
 // toggleEqualizer switches the equalizer on or off.
 func (m *Model) toggleEqualizer() tea.Cmd {
 	if m.eq == nil {
+		if config.Current.Equalizer == nil {
+			config.Current.Equalizer = &config.Equalizer{}
+		}
 		m.eq = &eqModel{
 			enabled: !config.Current.Equalizer.Enabled,
 			preset:  config.Current.Equalizer.Preset,
@@ -128,11 +131,16 @@ func (m *Model) applyEQ() {
 	if m.eq == nil {
 		return
 	}
+	if config.Current.Equalizer == nil {
+		config.Current.Equalizer = &config.Equalizer{}
+	}
 	config.Current.Equalizer.Enabled = m.eq.enabled
 	config.Current.Equalizer.Preset = m.eq.preset
-	config.Current.Equalizer.Gains = m.eq.gains[:]
+	config.Current.Equalizer.Gains = append([]float64(nil), m.eq.gains[:]...)
 	m.saveConfig()
-	m.tracker.SetEQ(m.eq.enabled, m.eq.gains)
+	if m.tracker != nil {
+		m.tracker.SetEQ(m.eq.enabled, m.eq.gains)
+	}
 }
 
 // presetList returns the names of the items the preset selector shows:

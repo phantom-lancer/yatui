@@ -43,6 +43,20 @@ func TestDrawToastsKeepsLayout(t *testing.T) {
 	}
 }
 
+func TestDrawToastsUseStableAnchorWithSnow(t *testing.T) {
+	m := &Model{toasts: []toast{{text: "stable notice", expires: time.Now().Add(time.Minute)}}}
+	anchor := "header\n\n"
+	animated := "header\n·\n"
+	got := m.drawToastsAt(animated, anchor)
+	lines := strings.Split(got, "\n")
+	if !strings.Contains(ansi.Strip(lines[0]), "stable notice") {
+		t.Fatalf("toast moved to a snow-filled row: %q", got)
+	}
+	if strings.Contains(ansi.Strip(lines[1]), "stable notice") {
+		t.Fatalf("toast was anchored to the animated snow row: %q", got)
+	}
+}
+
 func TestExpireToasts(t *testing.T) {
 	m := &Model{toasts: []toast{
 		{text: "old", expires: time.Now().Add(-time.Second)},

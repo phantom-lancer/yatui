@@ -91,7 +91,10 @@ func (r Rect) Contains(x, y int) bool {
 
 // fraction returns the horizontal position of x inside the rect (0..1).
 func (r Rect) fraction(x int) float64 {
-	fraction := float64(x-r.X) / float64(r.Width)
+	if r.Width <= 1 {
+		return 0
+	}
+	fraction := float64(x-r.X) / float64(r.Width-1)
 	if fraction < 0 {
 		return 0
 	}
@@ -246,6 +249,16 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonRight {
 		return m.mouseRightClick(msg.X, msg.Y)
+	}
+
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonMiddle {
+		if m.mouse.progress.Contains(msg.X, msg.Y) && m.tracker != nil {
+			return tea.Batch(
+				m.tracker.SeekTo(m.mouse.progress.fraction(msg.X)),
+				model.Cmd(tracker.REWIND),
+			)
+		}
+		return nil
 	}
 
 	if msg.Action == tea.MouseActionRelease {

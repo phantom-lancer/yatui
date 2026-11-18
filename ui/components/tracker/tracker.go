@@ -209,10 +209,16 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.help.Ellipsis = "…"
 	m.trackWrapper = &readWrapper{program: m.program}
 
+	bufferMs := config.Current.BufferSize
+	if bufferMs < 180 {
+		bufferMs = 180
+	} else if bufferMs > 500 {
+		bufferMs = 500
+	}
 	op := &oto.NewContextOptions{
 		SampleRate:   44100,
 		ChannelCount: 2,
-		BufferSize:   time.Millisecond * time.Duration(config.Current.BufferSize),
+		BufferSize:   time.Millisecond * time.Duration(bufferMs),
 		Format:       oto.FormatSignedInt16LE,
 	}
 
@@ -870,7 +876,7 @@ func (m *Model) Paused() bool {
 }
 
 func (m *Model) IsStoped() bool {
-	return m.player == nil || m.trackWrapper.trackBuffer == nil
+	return m.player == nil || m.trackWrapper == nil || m.trackWrapper.trackBuffer == nil
 }
 
 func (m *Model) CurrentTrack() *api.Track {

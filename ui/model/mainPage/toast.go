@@ -86,22 +86,30 @@ func (m *Model) expireToasts() {
 	m.toasts = alive
 }
 
-// drawToasts writes the toasts over the bottom right corner of the view.
+// drawToasts writes notifications over the bottom right corner of the view.
 func (m *Model) drawToasts(view string) string {
+	return m.drawToastsAt(view, view)
+}
+
+// drawToastsAt anchors notifications to the unanimated frame. Snow must not
+// change the last non-empty row and make the notifications jump vertically.
+func (m *Model) drawToastsAt(view, anchor string) string {
 	if len(m.toasts) == 0 {
 		return view
 	}
 
 	lines := strings.Split(view, "\n")
-	if len(lines) == 0 {
+	anchorLines := strings.Split(anchor, "\n")
+	if len(lines) == 0 || len(anchorLines) == 0 {
 		return view
 	}
 
-	// the last line is usually empty padding, so start from the last
-	// line that actually has something on it
-	last := len(lines) - 1
-	for last > 0 && strings.TrimSpace(ansi.Strip(lines[last])) == "" {
+	last := len(anchorLines) - 1
+	for last > 0 && strings.TrimSpace(ansi.Strip(anchorLines[last])) == "" {
 		last--
+	}
+	if last >= len(lines) {
+		last = len(lines) - 1
 	}
 
 	for i, t := range m.toasts {

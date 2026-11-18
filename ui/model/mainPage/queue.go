@@ -78,11 +78,15 @@ func (m *Model) refreshTrackList() {
 	if m.playlists == nil || m.tracklist == nil {
 		return
 	}
-	if m.currentPlaylistIndex < 0 || m.currentPlaylistIndex >= len(m.playlists.Items()) {
+	items := m.playlists.Items()
+	if len(items) == 0 {
 		return
 	}
-
-	item := m.playlists.Items()[m.currentPlaylistIndex]
+	selectedIndex := m.playlists.Index()
+	if selectedIndex < 0 || selectedIndex >= len(items) {
+		return
+	}
+	item := items[selectedIndex]
 	m.displayPlaylist(item)
 	m.indicateCurrentTrackPlaying(m.tracker != nil && m.tracker.IsPlaying())
 }

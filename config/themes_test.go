@@ -46,8 +46,10 @@ func TestThemePresetsAreComplete(t *testing.T) {
 }
 
 func TestDefaultWinterSettings(t *testing.T) {
-	if defaultConfig.WinterIntensity != 2 || !defaultConfig.WinterGarland {
-		t.Fatalf("unexpected winter defaults: intensity=%d garland=%v", defaultConfig.WinterIntensity, defaultConfig.WinterGarland)
+	if defaultConfig.WinterIntensity != 2 || !defaultConfig.WinterGarland ||
+		defaultConfig.WinterSpeed != 50 || defaultConfig.WinterDensity != 40 {
+		t.Fatalf("unexpected winter defaults: intensity=%d garland=%v speed=%d density=%d",
+			defaultConfig.WinterIntensity, defaultConfig.WinterGarland, defaultConfig.WinterSpeed, defaultConfig.WinterDensity)
 	}
 }
 

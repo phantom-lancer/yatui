@@ -24,22 +24,30 @@ const (
 	settingChoice
 	settingInfo
 	settingSection
+	settingSlider
 )
 
 // settingItem is a single row of the settings dialog. dir is -1 for "left",
 // 0 for "activate" and 1 for "right".
 type settingItem struct {
-	label string
-	kind  settingKind
-	value func() string
-	apply func(dir int) tea.Cmd
+	label      string
+	kind       settingKind
+	value      func() string
+	apply      func(dir int) tea.Cmd
+	sliderMin  int
+	sliderMax  int
+	sliderStep int
+	sliderGet  func() int
+	sliderSet  func(int) tea.Cmd
 }
 
 type settingsModel struct {
-	index  int
-	width  int
-	items  []settingItem
-	layout settingsLayout
+	index       int
+	width       int
+	items       []settingItem
+	layout      settingsLayout
+	dragging    bool
+	draggingRow int
 }
 
 // settingsLayout is where the rendered dialog ended up on the screen, so the
@@ -128,6 +136,10 @@ func (m *Model) settingsMouse(msg tea.MouseMsg) tea.Cmd {
 
 	switch msg.Action {
 	case tea.MouseActionMotion:
+		if m.settings.dragging && m.settings.draggingRow >= 0 && m.settings.draggingRow < len(m.settings.items) {
+			m.settings.index = m.settings.draggingRow
+			return tea.Batch(tea.ClearScreen, m.setSettingsSliderAt(m.settings.draggingRow, msg.X))
+		}
 		if msg.Button != tea.MouseButtonNone {
 			break
 		}
@@ -142,14 +154,25 @@ func (m *Model) settingsMouse(msg tea.MouseMsg) tea.Cmd {
 
 		row, ok := layout.rowAt(msg.X, msg.Y)
 		if !ok {
-			// a click outside of the dialog closes it
 			m.isSettingsActive = false
 			m.settings = nil
 			return tea.ClearScreen
 		}
 
 		m.settings.index = row
+		if m.settings.items[row].kind == settingSlider && msg.Button == tea.MouseButtonLeft {
+			m.settings.dragging = true
+			m.settings.draggingRow = row
+			return tea.Batch(tea.ClearScreen, m.setSettingsSliderAt(row, msg.X))
+		}
 		return tea.Batch(tea.ClearScreen, m.settings.change(layout.valueDir(msg.X, row)))
+
+	case tea.MouseActionRelease:
+		if m.settings.dragging {
+			m.settings.dragging = false
+			m.settings.draggingRow = 0
+			return tea.ClearScreen
+		}
 	}
 
 	return nil
@@ -182,6 +205,20 @@ func (s *settingsModel) change(dir int) tea.Cmd {
 	}
 
 	item := s.items[s.index]
+	if item.kind == settingSlider && item.sliderSet != nil && item.sliderGet != nil {
+		step := item.sliderStep
+		if step < 1 {
+			step = 1
+		}
+		value := item.sliderGet() + dir*step
+		if value < item.sliderMin {
+			value = item.sliderMin
+		}
+		if value > item.sliderMax {
+			value = item.sliderMax
+		}
+		return item.sliderSet(value)
+	}
 	if item.apply == nil {
 		return nil
 	}
@@ -215,10 +252,13 @@ func (s *settingsModel) view() string {
 		if item.kind == settingSection {
 			valueCell = strings.Repeat(" ", valueWidth)
 		}
-		if i == s.index && item.kind != settingSection && valueWidth >= 6 {
+		if i == s.index && item.kind != settingSection && item.kind != settingSlider && valueWidth >= 6 {
 			valueCell = "‹ " + padLeft(value, valueWidth-4) + " ›"
 		}
 
+		if item.kind == settingSlider && item.sliderGet != nil {
+			valueCell = padRight(renderSettingsSlider(item.sliderGet(), item.sliderMin, item.sliderMax, valueWidth), valueWidth)
+		}
 		// the row is laid out by hand: every line is exactly s.width cells
 		// wide, so a long value can never wrap and break the grid
 		line := padRight(item.label, labelWidth) + "  " + valueCell
@@ -247,6 +287,26 @@ func (s *settingsModel) view() string {
 		box,
 		style.DialogHelpStyle.Render("↑/↓, мышь — выбор, ←/→ — изменить, esc — выход"),
 	)
+}
+
+func renderSettingsSlider(value, minValue, maxValue, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if maxValue <= minValue {
+		return padRight(fmt.Sprintf("%d", value), width)
+	}
+	barWidth := width - 7
+	if barWidth < 3 {
+		barWidth = 3
+	}
+	if barWidth > 24 {
+		barWidth = 24
+	}
+	value = max(minValue, min(maxValue, value))
+	filled := int(math.Round(float64(value-minValue) / float64(maxValue-minValue) * float64(barWidth-1)))
+	bar := "[" + strings.Repeat("=", filled) + ">" + strings.Repeat("-", barWidth-filled-1) + "]"
+	return fmt.Sprintf("%s %3d%%", bar, value)
 }
 
 // padRight pads (or truncates) a string to the given number of cells.
@@ -287,6 +347,29 @@ func (s *settingsModel) labelWidth() int {
 		}
 	}
 	return width
+}
+
+func (m *Model) setSettingsSliderAt(row, x int) tea.Cmd {
+	if m.settings == nil || row < 0 || row >= len(m.settings.items) {
+		return nil
+	}
+	item := m.settings.items[row]
+	if item.kind != settingSlider || item.sliderSet == nil {
+		return nil
+	}
+	layout := m.settings.layout
+	valueX := layout.rowX + layout.labelWidth + 2
+	valueWidth := layout.rowWidth - layout.labelWidth - 2
+	if valueWidth <= 1 {
+		return nil
+	}
+	fraction := float64(x-valueX) / float64(valueWidth-1)
+	fraction = math.Max(0, math.Min(1, fraction))
+	value := item.sliderMin + int(math.Round(fraction*float64(item.sliderMax-item.sliderMin)))
+	step := max(1, item.sliderStep)
+	value = item.sliderMin + int(math.Round(float64(value-item.sliderMin)/float64(step)))*step
+	value = max(item.sliderMin, min(item.sliderMax, value))
+	return item.sliderSet(value)
 }
 
 // toggleSettings opens or closes the settings dialog.
@@ -378,12 +461,12 @@ func (m *Model) buildSettings() []settingItem {
 			label: "Буфер, мс",
 			kind:  settingNumber,
 			value: func() string {
-				return fmt.Sprintf("%d (после перезапуска)", int(config.Current.BufferSize))
+				return fmt.Sprintf("%d (после перезапуска)", max(180, min(500, int(config.Current.BufferSize))))
 			},
 			apply: func(dir int) tea.Cmd {
 				buffer := config.Current.BufferSize + float64(dir)*10
-				if buffer < 40 {
-					buffer = 40
+				if buffer < 180 {
+					buffer = 180
 				} else if buffer > 500 {
 					buffer = 500
 				}
@@ -563,6 +646,48 @@ func (m *Model) buildSettings() []settingItem {
 		},
 	}
 
+	if winterActive() {
+		winterItems := []settingItem{
+			{
+				label: "Скорость снега", kind: settingSlider,
+				sliderMin: 10, sliderMax: 100, sliderStep: 5,
+				sliderGet: func() int { return config.Current.WinterSpeed },
+				sliderSet: func(value int) tea.Cmd {
+					config.Current.WinterSpeed = max(10, min(100, value))
+					config.SaveLater()
+					m.idleFrameValid = false
+					return nil
+				},
+			},
+			{
+				label: "Плотность снега", kind: settingSlider,
+				sliderMin: 0, sliderMax: 100, sliderStep: 5,
+				sliderGet: func() int { return config.Current.WinterDensity },
+				sliderSet: func(value int) tea.Cmd {
+					config.Current.WinterDensity = max(0, min(100, value))
+					config.SaveLater()
+					m.idleFrameValid = false
+					return nil
+				},
+			},
+			{
+				label: "Гирлянда", kind: settingBool,
+				value: func() string { return onOff(config.Current.WinterGarland) },
+				apply: func(dir int) tea.Cmd { return m.toggleWinterGarland() },
+			},
+		}
+		at := 0
+		for i, item := range items {
+			if item.label == "Тема" {
+				at = i + 1
+				break
+			}
+		}
+		items = append(items, make([]settingItem, len(winterItems))...)
+		copy(items[at+len(winterItems):], items[at:len(items)-len(winterItems)])
+		copy(items[at:], winterItems)
+	}
+
 	if m.updateRelease != nil {
 		items = append(items, settingItem{
 			label: "Установить обновление",
@@ -577,26 +702,6 @@ func (m *Model) buildSettings() []settingItem {
 				return m.downloadUpdateCmd()
 			},
 		})
-	}
-
-	if winterActive() {
-		items = append(items,
-			settingItem{
-				label: "Снег",
-				kind:  settingChoice,
-				value: func() string { return winterIntensityLabel(winterIntensity()) },
-				apply: func(dir int) tea.Cmd {
-					value := (winterIntensity() + dir + 4) % 4
-					return m.applyWinterIntensity(value)
-				},
-			},
-			settingItem{
-				label: "Гирлянда",
-				kind:  settingBool,
-				value: func() string { return onOff(config.Current.WinterGarland) },
-				apply: func(dir int) tea.Cmd { return m.toggleWinterGarland() },
-			},
-		)
 	}
 
 	// the whole animated theme is configured in its own panel: one row here

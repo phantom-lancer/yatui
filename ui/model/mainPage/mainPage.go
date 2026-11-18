@@ -172,9 +172,11 @@ type Model struct {
 
 	// winter animation uses one low-frequency timer only while visible effects
 	// are enabled. Generation invalidates an already queued tick on disable.
-	winterRunning    bool
-	winterGeneration uint64
-	winterFrame      uint64
+	winterRunning     bool
+	winterGeneration  uint64
+	winterFrame       uint64
+	winterParticles   []winterParticle
+	winterPointerDown bool
 
 	// idle rendering caches the last completed frame while high-frequency
 	// motion/progress messages are coalesced.
@@ -301,6 +303,10 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.WindowSizeMsg:
 			return m, m.settleIdle()
 		}
+	}
+
+	if msg, ok := message.(tea.MouseMsg); ok {
+		m.handleWinterMouse(msg)
 	}
 
 	// Timers that belong to the player or Discord are handled before any
@@ -834,8 +840,9 @@ func (m *Model) View() string {
 		view = m.viewBody()
 	}
 	view = drawVersion(view)
-	view = drawWinterOverlay(view, m.winterFrame)
-	view = m.drawToasts(view)
+	baseView := view
+	view = drawWinterOverlayWithParticles(view, m.winterFrame, m.winterParticles)
+	view = m.drawToastsAt(view, baseView)
 	m.idleFrame = view
 	m.idleFrameValid = true
 	m.progressDrawn = time.Now()
