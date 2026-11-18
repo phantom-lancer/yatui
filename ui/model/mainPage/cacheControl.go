@@ -16,24 +16,40 @@ import (
 
 func (m *Model) cacheCurrentTrack() tea.Cmd {
 	currentTrack := m.tracker.CurrentTrack()
-	if m.tracker.IsStoped() || m.cachedTracksMap[currentTrack.Id] {
+	if m.tracker.IsStoped() || currentTrack == nil || m.cachedTracksMap[currentTrack.Id] {
 		return nil
 	}
+	reader := m.tracker.TrackBuffer()
+	if reader == nil {
+		return nil
+	}
+	track := *currentTrack
+	metadataPath := m.metadataFilePath()
 
-	metadataFile, err := os.OpenFile(m.metadataFilePath(), os.O_RDONLY, 0755)
+	// Parsing ID3 and copying a whole track to disk must not run in the UI loop.
+	return func() tea.Msg {
+		return bufferedTrackCachedMsg{
+			track: &track,
+			err:   saveBufferedTrack(reader, metadataPath, track.Id),
+		}
+	}
+}
+
+type bufferedTrackCachedMsg struct {
+	track *api.Track
+	err   error
+}
+
+func saveBufferedTrack(reader io.WriterTo, metadataPath, trackID string) error {
+	metadataFile, err := os.Open(metadataPath)
 	if err != nil {
-		log.Print(log.LVL_ERROR, "failed to open cache file: %s", err)
-		m.tracker.ShowError("cache open")
-		return nil
+		return err
 	}
-
 	defer metadataFile.Close()
 
-	cacheFile, err := cache.Write(currentTrack.Id)
+	cacheFile, err := cache.Write(trackID)
 	if err != nil {
-		log.Print(log.LVL_ERROR, "failed to write cache file: %s", err)
-		m.tracker.ShowError("cache write")
-		return nil
+		return err
 	}
 	committed := false
 	defer func() {
@@ -44,31 +60,37 @@ func (m *Model) cacheCurrentTrack() tea.Cmd {
 
 	tag := id3v2.NewEmptyTag()
 	tag.Reset(metadataFile, id3v2.Options{Parse: true})
-	tag.WriteTo(cacheFile)
-	if _, err := m.tracker.TrackBuffer().WriteTo(cacheFile); err != nil {
-		log.Print(log.LVL_ERROR, "failed to save cached track: %s", err)
-		m.tracker.ShowError("cache write")
-		return nil
+	if _, err := tag.WriteTo(cacheFile); err != nil {
+		return err
 	}
-	// the file becomes a cached track only when it is complete
-	if err := cache.Commit(cacheFile, currentTrack.Id); err != nil {
-		log.Print(log.LVL_ERROR, "failed to commit cache file: %s", err)
-		m.tracker.ShowError("cache write")
-		return nil
+	if _, err := reader.WriteTo(cacheFile); err != nil {
+		return err
+	}
+	if err := cache.Commit(cacheFile, trackID); err != nil {
+		return err
 	}
 	committed = true
+	return nil
+}
 
-	m.cachedTracksMap[currentTrack.Id] = true
+func (m *Model) applyBufferedTrackCached(msg bufferedTrackCachedMsg) tea.Cmd {
+	if msg.track == nil {
+		return nil
+	}
+	if msg.err != nil {
+		log.Print(log.LVL_ERROR, "failed to save cached track: %s", msg.err)
+		m.tracker.ShowError("cache write")
+		return nil
+	}
+
+	m.cachedTracksMap[msg.track.Id] = true
 	cachePlaylist, index := m.playlists.GetFirst(playlist.LOCAL)
-	cachePlaylist.AddTrack(currentTrack)
+	cachePlaylist.AddTrack(msg.track)
 	cmd := m.playlists.SetItem(index, cachePlaylist)
-
 	if m.playlists.SelectedItem().Kind == playlist.LOCAL {
 		m.displayPlaylist(cachePlaylist)
 	}
-
-	m.showToast("В кэш: " + currentTrack.Title)
-
+	m.showToast("В кэш: " + msg.track.Title)
 	m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 	return cmd
 }

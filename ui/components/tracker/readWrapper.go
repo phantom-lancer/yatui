@@ -32,6 +32,8 @@ type readWrapper struct {
 	trackBuffer      *stream.BufferedStream
 	deferEnded       bool
 	playbackProgress uint64
+	decodedPosition  int64
+	durationMs       int
 	trackBuffered    bool
 	trackDone        bool
 	lastUpdateTime   time.Time
@@ -60,6 +62,11 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	w.trackDone = false
 	w.deferEnded = false
 	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(0))
+	w.decodedPosition = 0
+	w.durationMs = 0
+	if track != nil {
+		w.durationMs = track.DurationMs
+	}
 	w.trackBuffer = reader
 	w.playMeter = nil
 	w.duckLogged = false
@@ -129,6 +136,7 @@ func (w *readWrapper) measureLoudness() {
 		return
 	}
 	w.decoder = decoder
+	w.decodedPosition = 0
 
 	w.normalization = meter.normalization()
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
@@ -253,6 +261,9 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 	}
 
 	n, err = w.decoder.Read(dest)
+	if n > 0 {
+		w.decodedPosition += int64(n)
+	}
 	if err != nil && err != io.EOF {
 		if w.trackBuffer.Error() != nil {
 			err = w.trackBuffer.Error()
@@ -315,39 +326,76 @@ func (w *readWrapper) Seek(offset int64, whence int) (int64, error) {
 	pos, err := w.decoder.Seek(offset, whence)
 	if err == nil {
 		w.trackDone = false
-		if w.deferEnded && w.trackBuffer != nil && w.trackBuffer.Length() > 0 {
-			fraction := float64(pos) / float64(w.trackBuffer.Length())
-			atomic.StoreUint64(&w.playbackProgress, math.Float64bits(fraction))
+		w.decodedPosition = pos
+		if w.deferEnded {
+			atomic.StoreUint64(&w.playbackProgress, math.Float64bits(w.SourceProgress()))
 		}
 	}
 	return pos, err
 }
 
 func (w *readWrapper) Length() int64 {
-	return w.trackBuffer.Length()
-}
-
-func (w *readWrapper) SourceProgress() float64 {
 	if w.trackBuffer == nil {
 		return 0
 	}
-	return w.trackBuffer.Progress()
+	return w.trackBuffer.Length()
+}
+
+// SourceProgress estimates decoded PCM position from the track duration.
+// The MP3 decoder's Length reports compressed source bytes, not PCM bytes.
+func (w *readWrapper) SourceProgress() float64 {
+	if w.decoder == nil || w.durationMs <= 0 {
+		if w.trackBuffer == nil {
+			return 0
+		}
+		return w.trackBuffer.Progress()
+	}
+	totalPCMBytes := float64(w.durationMs) * float64(w.decoder.SampleRate()) * 4 / 1000
+	if totalPCMBytes <= 0 {
+		return 0
+	}
+	return clampPCMProgress(float64(w.decodedPosition) / totalPCMBytes)
+}
+
+func clampPCMProgress(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 func (w *readWrapper) Progress() float64 {
 	if w.deferEnded {
 		return math.Float64frombits(atomic.LoadUint64(&w.playbackProgress))
 	}
-	if w.trackBuffer == nil {
-		return 0
-	}
-	return w.trackBuffer.Progress()
+	return w.SourceProgress()
+}
+
+func (w *readWrapper) setProgress(fraction float64) {
+	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(fraction))
 }
 
 func (w *readWrapper) sendProgress(fraction float64) {
-	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(fraction))
+	w.setProgress(fraction)
 	if w.program != nil {
 		go w.program.Send(ProgressControl(fraction))
+	}
+}
+
+// sendReady starts the normal volume fade only after the PCM worker has
+// primed enough audio to survive a short CPU scheduling interruption.
+func (w *readWrapper) sendReady() {
+	if w.program != nil {
+		go w.program.Send(VolumeFadeStartMsg{})
+	}
+}
+
+func (w *readWrapper) sendSeekError(err error) {
+	if err != nil {
+		log.Print(log.LVL_WARNIGN, "audio seek failed: %s", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/cache"
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
 	"github.com/phantom-lancer/yatui/ui/components/tracker"
@@ -79,6 +80,10 @@ func (m *Model) clearPreload() {
 }
 
 func (m *Model) preloadNextTrack() {
+	if !config.Current.PreloadNextTrack {
+		m.clearPreload()
+		return
+	}
 	// A new playback state invalidates the previous prediction, including a
 	// prefetch that has not finished publishing its buffer yet.
 	m.preload.mu.Lock()

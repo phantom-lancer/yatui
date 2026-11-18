@@ -510,6 +510,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case trackDownloadedMsg:
 		return m, m.applyDownloadedTrack(msg)
 
+	case bufferedTrackCachedMsg:
+		return m, m.applyBufferedTrackCached(msg)
+
 	case lastfmFlushedMsg:
 		if msg.count > 0 {
 			m.showToast(fmt.Sprintf("Last.fm: отправлено %d", msg.count))

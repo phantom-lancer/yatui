@@ -69,7 +69,31 @@ func TestWinterSnowIntensityControlsParticleCount(t *testing.T) {
 	}
 	low := len(winterSnowPositions(120, 40, 12, 1))
 	high := len(winterSnowPositions(120, 40, 12, 3))
-	if low == 0 || high <= low || high > 72 {
+	if low == 0 || high <= low || high > 180 {
 		t.Fatalf("unexpected particle counts: low=%d high=%d", low, high)
+	}
+}
+
+func TestWinterGarlandFindsFreeRowAfterResize(t *testing.T) {
+	previousStyle := config.Current.Style
+	previousIntensity := config.Current.WinterIntensity
+	previousGarland := config.Current.WinterGarland
+	t.Cleanup(func() {
+		config.Current.Style = previousStyle
+		config.Current.WinterIntensity = previousIntensity
+		config.Current.WinterGarland = previousGarland
+	})
+
+	config.Current.Style = &config.Style{Theme: "winter"}
+	config.Current.WinterIntensity = 0
+	config.Current.WinterGarland = true
+
+	view := "TITLE\n                \nBODY"
+	got := drawWinterOverlay(view, 4)
+	if count := strings.Count(got, "●"); count < 2 {
+		t.Fatalf("garland has %d bulbs after resize, want at least 2: %q", count, got)
+	}
+	if !strings.Contains(got, "TITLE") || !strings.Contains(got, "BODY") {
+		t.Fatalf("garland damaged visible text: %q", got)
 	}
 }

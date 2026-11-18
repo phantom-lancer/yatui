@@ -1,6 +1,9 @@
 package updater
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -54,5 +57,50 @@ func TestChecksumForRejectsMissingAndMalformedEntries(t *testing.T) {
 	}
 	if _, err := checksumFor([]byte("nope  yatui"), "yatui"); err == nil {
 		t.Fatal("malformed checksum was accepted")
+	}
+}
+
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestCheckLatestAtomBuildsReleaseAssets(t *testing.T) {
+	const feed = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/123/v0.12.0</id>
+    <link rel="alternate" type="text/html" href="https://github.com/phantom-lancer/yatui/releases/tag/v0.12.0"/>
+    <title>v0.12.0</title>
+  </entry>
+</feed>`
+	client := &http.Client{Transport: testRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "github.com" || !strings.HasSuffix(request.URL.Path, "/releases.atom") {
+			t.Fatalf("unexpected feed URL: %s", request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(feed)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+
+	release, err := checkLatestAtom(context.Background(), client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.TagName != "v0.12.0" {
+		t.Fatalf("tag = %q", release.TagName)
+	}
+	if release.HTMLURL != "https://github.com/phantom-lancer/yatui/releases/tag/v0.12.0" {
+		t.Fatalf("release URL = %q", release.HTMLURL)
+	}
+	if _, err := findAsset(release, "SHA256SUMS"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := findAsset(release, "yatui-windows-amd64.exe"); err != nil {
+		t.Fatal(err)
 	}
 }

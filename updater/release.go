@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -43,31 +44,19 @@ func newHTTPClient(proxy string, timeout time.Duration) *http.Client {
 }
 
 // CheckLatest is called only from the explicit "check updates" action.
-// It performs one GitHub API request and creates no timers or background work.
+// GitHub's API is tried first. If api.github.com is blocked by DNS or a
+// network filter, the public releases.atom feed on github.com is used instead.
 func CheckLatest(ctx context.Context, currentVersion, proxy string) (*Release, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/repos/"+repository+"/releases/latest", nil)
-	if err != nil {
-		return nil, false, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", "YATUI-Updater")
-
 	client := newHTTPClient(proxy, 12*time.Second)
 	defer client.CloseIdleConnections()
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("GitHub API: %s", resp.Status)
-	}
 
-	var release Release
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&release); err != nil {
-		return nil, false, err
+	release, apiErr := checkLatestAPI(ctx, client)
+	if apiErr != nil {
+		var feedErr error
+		release, feedErr = checkLatestAtom(ctx, client)
+		if feedErr != nil {
+			return nil, false, fmt.Errorf("GitHub API failed (%v); releases feed failed: %w", apiErr, feedErr)
+		}
 	}
 	if _, err := versionParts(release.TagName); err != nil {
 		return nil, false, fmt.Errorf("invalid release version %q: %w", release.TagName, err)
@@ -76,7 +65,89 @@ func CheckLatest(ctx context.Context, currentVersion, proxy string) (*Release, b
 	if err != nil {
 		return nil, false, err
 	}
-	return &release, newer, nil
+	return release, newer, nil
+}
+
+func checkLatestAPI(ctx context.Context, client *http.Client) (*Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.github.com/repos/"+repository+"/releases/latest", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "YATUI-Updater")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API: %s", resp.Status)
+	}
+	var release Release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&release); err != nil {
+		return nil, err
+	}
+	return &release, nil
+}
+
+func checkLatestAtom(ctx context.Context, client *http.Client) (*Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://github.com/"+repository+"/releases.atom", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "YATUI-Updater")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub releases feed: %s", resp.Status)
+	}
+	var feed struct {
+		Entries []struct {
+			Title string `xml:"title"`
+			ID    string `xml:"id"`
+			Link  struct {
+				Href string `xml:"href,attr"`
+			} `xml:"link"`
+		} `xml:"entry"`
+	}
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&feed); err != nil {
+		return nil, err
+	}
+	if len(feed.Entries) == 0 {
+		return nil, errors.New("GitHub releases feed is empty")
+	}
+	entry := feed.Entries[0]
+	tag := strings.TrimSpace(entry.Title)
+	if tag == "" {
+		tag = strings.TrimPrefix(entry.ID, "tag:github.com,2008:Repository/")
+		if index := strings.LastIndex(tag, "/"); index >= 0 {
+			tag = tag[index+1:]
+		}
+	}
+	if tag == "" {
+		return nil, errors.New("GitHub releases feed has no version tag")
+	}
+	base := "https://github.com/" + repository + "/releases/download/" + tag + "/"
+	names := []string{
+		"SHA256SUMS",
+		"yatui-windows-amd64.exe",
+		"yatui-windows-amd64-nomedia.exe",
+		"yatui-linux-amd64",
+		"yatui-linux-amd64-nomedia",
+	}
+	release := &Release{TagName: tag, HTMLURL: entry.Link.Href}
+	for _, name := range names {
+		release.Assets = append(release.Assets, Asset{
+			Name: name, BrowserDownloadURL: base + name,
+		})
+	}
+	return release, nil
 }
 
 func versionParts(v string) ([3]int, error) {
