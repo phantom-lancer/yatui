@@ -93,3 +93,30 @@ func TestSettingsViewKeepsSingleLineRows(t *testing.T) {
 		}
 	}
 }
+func TestSettingsNavigationSkipsSectionHeaders(t *testing.T) {
+	s := &settingsModel{
+		items: []settingItem{
+			{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingInfo},
+			{label: "Громкость", kind: settingNumber},
+			{label: "ВНЕШНИЙ ВИД", kind: settingInfo},
+			{label: "Тема", kind: settingChoice},
+		},
+	}
+	s.index = 0
+	s.down()
+	if s.index != 1 {
+		t.Fatalf("down from section header = %d, want setting 1", s.index)
+	}
+	s.down()
+	if s.index != 3 {
+		t.Fatalf("down skipped to %d, want setting 3", s.index)
+	}
+	s.down()
+	if s.index != 1 {
+		t.Fatalf("down wrap skipped to %d, want setting 1", s.index)
+	}
+	s.up()
+	if s.index != 3 {
+		t.Fatalf("up wrap skipped to %d, want setting 3", s.index)
+	}
+}

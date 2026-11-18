@@ -48,7 +48,7 @@ func TestLastfmStatusShowsUnsentScrobbles(t *testing.T) {
 	queue.Add(lastfm.Scrobble{Artist: "Artist", Title: "two"})
 
 	m := &Model{scrobbles: queue}
-	if got, want := m.lastfmStatus(), "user вкл · 2 скроббла не отправлено"; got != want {
+	if got, want := m.lastfmStatus(), "2 скроббла · вкл"; got != want {
 		t.Fatalf("status = %q, want %q", got, want)
 	}
 }
@@ -60,8 +60,8 @@ func TestLastfmStatus(t *testing.T) {
 	}{
 		{config.LastFM{}, "войти"},
 		{config.LastFM{ApiKey: "k", ApiSecret: "s"}, "войти"},
-		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user", Enabled: true}, "user вкл"},
-		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user"}, "user выкл"},
+		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user", Enabled: true}, "вкл"},
+		{config.LastFM{ApiKey: "k", ApiSecret: "s", SessionKey: "sk", Username: "user"}, "выкл"},
 	}
 
 	for _, c := range cases {
@@ -182,7 +182,7 @@ func TestApplyLastfmSession(t *testing.T) {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 
-	if got := lastfmStatusOf(cfg); got != "user вкл" {
+	if got := lastfmStatusOf(cfg); got != "вкл" {
 		t.Fatalf("status = %q", got)
 	}
 }

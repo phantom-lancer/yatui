@@ -155,22 +155,23 @@ func (m *Model) settingsMouse(msg tea.MouseMsg) tea.Cmd {
 }
 
 func (s *settingsModel) up() {
-	if len(s.items) == 0 {
-		return
-	}
-	s.index--
-	if s.index < 0 {
-		s.index = len(s.items) - 1
-	}
+	s.move(-1)
 }
 
 func (s *settingsModel) down() {
+	s.move(1)
+}
+
+// Section headings are visual separators, not selectable settings.
+func (s *settingsModel) move(direction int) {
 	if len(s.items) == 0 {
 		return
 	}
-	s.index++
-	if s.index >= len(s.items) {
-		s.index = 0
+	for range s.items {
+		s.index = (s.index + direction + len(s.items)) % len(s.items)
+		if s.items[s.index].kind != settingInfo {
+			return
+		}
 	}
 }
 
@@ -210,6 +211,9 @@ func (s *settingsModel) view() string {
 		// where the left and the right mouse buttons are, and the halves of
 		// the value area work the way the arrows point
 		valueCell := padLeft(value, valueWidth)
+		if item.kind == settingInfo {
+			valueCell = strings.Repeat(" ", valueWidth)
+		}
 		if i == s.index && item.kind != settingInfo && valueWidth >= 6 {
 			valueCell = "‹ " + padLeft(value, valueWidth-4) + " ›"
 		}
@@ -219,7 +223,9 @@ func (s *settingsModel) view() string {
 		line := padRight(item.label, labelWidth) + "  " + valueCell
 
 		rowStyle := lipgloss.NewStyle().Padding(0, 1)
-		if i == s.index {
+		if item.kind == settingInfo {
+			rowStyle = rowStyle.Foreground(style.AccentColor).Bold(true)
+		} else if i == s.index {
 			rowStyle = rowStyle.
 				Foreground(style.InactiveTextColor).
 				Background(style.AccentColor)
@@ -290,7 +296,7 @@ func (m *Model) toggleSettings() {
 		return
 	}
 
-	m.settings = &settingsModel{width: 44, items: m.buildSettings()}
+	m.settings = &settingsModel{width: 56, items: m.buildSettings()}
 	m.isSettingsActive = true
 }
 
@@ -333,6 +339,7 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 // current state.
 func (m *Model) buildSettings() []settingItem {
 	items := []settingItem{
+		{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingInfo},
 		{
 			label: "Громкость",
 			kind:  settingNumber,
@@ -450,6 +457,7 @@ func (m *Model) buildSettings() []settingItem {
 				return nil
 			},
 		},
+		{label: "ВНЕШНИЙ ВИД", kind: settingInfo},
 		{
 			label: "Тема",
 			kind:  settingChoice,
@@ -502,6 +510,22 @@ func (m *Model) buildSettings() []settingItem {
 				config.Current.CacheTracks = (config.Current.CacheTracks + 1) % 3
 				m.saveConfig()
 				m.showToast("Кэш: " + cacheName(config.Current.CacheTracks) + " (после перезапуска)")
+				return nil
+			},
+		},
+		{label: "СЕРВИСЫ И ОБНОВЛЕНИЯ", kind: settingInfo},
+		{
+			label: "Предзагрузка следующего трека",
+			kind:  settingBool,
+			value: func() string { return onOff(config.Current.PreloadNextTrack) },
+			apply: func(dir int) tea.Cmd {
+				config.Current.PreloadNextTrack = !config.Current.PreloadNextTrack
+				if !config.Current.PreloadNextTrack {
+					m.clearPreload()
+				} else {
+					m.preloadNextTrack()
+				}
+				m.saveConfig()
 				return nil
 			},
 		},

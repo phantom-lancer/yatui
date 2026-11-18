@@ -11,7 +11,7 @@ import (
 	"github.com/phantom-lancer/yatui/config"
 )
 
-const winterFrameInterval = 120 * time.Millisecond
+const winterFrameInterval = 33 * time.Millisecond
 
 type winterTickMsg struct {
 	generation uint64
@@ -130,8 +130,22 @@ func drawWinterOverlay(view string, frame uint64) string {
 	}
 
 	snow := winterSnowPositions(width, len(lines), frame, winterIntensity())
+	garlandRow := -1
+	if config.Current.WinterGarland {
+		// Lipgloss may add vertical padding before the visible content. Find
+		// the first row with the most free cells instead of assuming row zero
+		// is the top edge after every terminal resize.
+		bestSpaces := 0
+		for row, line := range lines {
+			spaces := strings.Count(ansi.Strip(line), " ")
+			if spaces > bestSpaces {
+				bestSpaces = spaces
+				garlandRow = row
+			}
+		}
+	}
 	for row := range lines {
-		lines[row] = decorateWinterLine(lines[row], row, width, snow, config.Current.WinterGarland, frame)
+		lines[row] = decorateWinterLine(lines[row], row, width, snow, row == garlandRow, frame)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -142,17 +156,24 @@ func winterSnowPositions(width, height int, frame uint64, intensity int) map[int
 		return positions
 	}
 
-	count := width * height * intensity / 220
-	if count < 4 {
-		count = 4
+	count := width * height * intensity / 150
+	if count < 8 {
+		count = 8
 	}
-	if count > 72 {
-		count = 72
+	if count > 180 {
+		count = 180
 	}
 
+	// Every flake has its own fall speed and horizontal drift. A shared
+	// vertical offset made all particles line up into a visible horizontal
+	// band when the terminal was tall or fullscreen.
 	for i := 0; i < count; i++ {
-		y := (int(frame/2) + i*17) % height
-		x := (i*37 + int(frame/7)*(i%3+1)) % width
+		seedY := (i*37 + i*i*11) % height
+		speed := 1 + i%4
+		y := (seedY + int(frame)*speed) % height
+		seedX := (i*53 + i*i*7) % width
+		sway := (int(frame/3)+i*5)%7 - 3
+		x := (seedX + sway + width) % width
 		positions[y*width+x] = struct{}{}
 	}
 	return positions
@@ -188,7 +209,7 @@ func decorateWinterLine(line string, row, gridWidth int, snow map[int]struct{}, 
 		}
 
 		if width > 0 {
-			if token == " " && garland && row == 0 && column%7 == 0 {
+			if token == " " && garland && column%7 == 0 {
 				color := winterBulbColor(column/7, frame)
 				out.WriteString(color + "●\x1b[0m" + activeSGR)
 			} else if token == " " {

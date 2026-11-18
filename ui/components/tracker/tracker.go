@@ -589,9 +589,12 @@ func (m *Model) Update(message tea.Msg) (*Model, tea.Cmd) {
 			cmds = append(cmds, model.Cmd(LIKE))
 
 		case controls.PlayerCache.Contains(keypress):
-			if !m.IsStoped() {
-				m.trackWrapper.trackBuffer.BufferAll()
-				cmds = append(cmds, model.Cmd(CACHE_TRACK))
+			if !m.IsStoped() && m.trackWrapper.trackBuffer != nil {
+				reader := m.trackWrapper.trackBuffer
+				cmds = append(cmds, func() tea.Msg {
+					reader.BufferAll()
+					return CACHE_TRACK
+				})
 			}
 
 		case controls.PlayerVolUp.Contains(keypress):
@@ -996,6 +999,11 @@ func (m *Model) dynamicVolumeStep() float64 {
 // output volume differs from the configured target.
 func (m *Model) StartVolumeFade() tea.Cmd {
 	m.volumeFadeGeneration++
+	if m.bufferedReader != nil && !m.bufferedReader.IsReady() {
+		// The PCM worker sends VolumeFadeStartMsg again once its startup or
+		// post-seek queue has reached the priming threshold.
+		return nil
+	}
 	if m.player == nil || m.paused || !m.player.IsPlaying() {
 		return nil
 	}

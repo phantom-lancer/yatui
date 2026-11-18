@@ -86,6 +86,9 @@ func load() (Config, error) {
 		if _, ok := configFields["winter-garland"]; !ok {
 			newConfig.WinterGarland = defaultConfig.WinterGarland
 		}
+		if _, ok := configFields["preload-next-track"]; !ok {
+			newConfig.PreloadNextTrack = defaultConfig.PreloadNextTrack
+		}
 	}
 
 	if newConfig.VolumeStep == 0 {

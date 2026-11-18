@@ -89,16 +89,15 @@ func (m *Model) lastfmStatus() string {
 		return "войти"
 	}
 
-	status := cfg.Username
+	status := "выкл"
 	if cfg.Enabled {
-		status += " вкл"
-	} else {
-		status += " выкл"
+		status = "вкл"
 	}
-
 	if m.scrobbles != nil {
 		if pending := m.scrobbles.Len(); pending > 0 {
-			status += fmt.Sprintf(" · %s не отправлено", pendingScrobblesLabel(pending))
+			// Keep the count at the beginning: the settings value column is
+			// intentionally narrow and used to truncate the tail.
+			return pendingScrobblesLabel(pending) + " · " + status
 		}
 	}
 	return status
