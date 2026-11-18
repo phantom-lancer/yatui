@@ -291,6 +291,7 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 
 		trackReader    io.ReadCloser
 		trackSize      int64
+		trackBuffer    *stream.BufferedStream
 		trackFromCache bool
 		downloadErr    error
 	)
@@ -341,64 +342,69 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 		}()
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		tr, ts, cerr := cache.Read(track.Id)
-		if cerr == nil {
-			trackReader = tr
-			trackSize = ts
-			trackFromCache = true
-			return
-		}
-		if m.client == nil {
-			downloadErr = errors.New("no yandex client")
-			return
-		}
-		var lastErr error
-		for i := 0; i < _TRACK_DOWNLOAD_TRIES; i++ {
-			trackInfos, ierr := m.client.TrackDownloadInfo(track.Id)
-			if ierr != nil {
-				log.Print(log.LVL_ERROR, "failed to obtain track [%s] info: %s", track.Id, ierr)
-				lastErr = ierr
-				continue
+	trackBuffer = m.takePreloaded(track.Id)
+	if trackBuffer == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tr, ts, cerr := cache.Read(track.Id)
+			if cerr == nil {
+				trackReader = tr
+				trackSize = ts
+				trackFromCache = true
+				return
 			}
-			var bestBitrate int
-			var bestTrackInfo api.TrackDownloadInfo
-			for _, ti := range trackInfos {
-				if ti.BbitrateInKbps > bestBitrate {
-					bestBitrate = ti.BbitrateInKbps
-					bestTrackInfo = ti
+			if m.client == nil {
+				downloadErr = errors.New("no yandex client")
+				return
+			}
+			var lastErr error
+			for i := 0; i < _TRACK_DOWNLOAD_TRIES; i++ {
+				trackInfos, ierr := m.client.TrackDownloadInfo(track.Id)
+				if ierr != nil {
+					log.Print(log.LVL_ERROR, "failed to obtain track [%s] info: %s", track.Id, ierr)
+					lastErr = ierr
+					continue
 				}
+				var bestBitrate int
+				var bestTrackInfo api.TrackDownloadInfo
+				for _, ti := range trackInfos {
+					if ti.BbitrateInKbps > bestBitrate {
+						bestBitrate = ti.BbitrateInKbps
+						bestTrackInfo = ti
+					}
+				}
+				tr2, ts2, derr := m.client.DownloadTrack(bestTrackInfo)
+				if derr != nil {
+					log.Print(log.LVL_ERROR, "failed to download track [%s]: %s", track.Id, derr)
+					lastErr = derr
+					continue
+				}
+				if ts2 <= 0 {
+					// an empty body: the track is tried again
+					log.Print(log.LVL_ERROR, "track [%s] is empty", track.Id)
+					lastErr = errors.New("empty track")
+					continue
+				}
+				trackReader = tr2
+				trackSize = ts2
+				lastErr = nil
+				break
 			}
-			tr2, ts2, derr := m.client.DownloadTrack(bestTrackInfo)
-			if derr != nil {
-				log.Print(log.LVL_ERROR, "failed to download track [%s]: %s", track.Id, derr)
-				lastErr = derr
-				continue
-			}
-			if ts2 <= 0 {
-				// an empty body: the track is tried again
-				log.Print(log.LVL_ERROR, "track [%s] is empty", track.Id)
-				lastErr = errors.New("empty track")
-				continue
-			}
-			trackReader = tr2
-			trackSize = ts2
-			lastErr = nil
-			break
-		}
-		downloadErr = lastErr
-	}()
+			downloadErr = lastErr
+		}()
+	}
 
 	wg.Wait()
 
-	if downloadErr != nil && trackReader == nil {
+	if trackBuffer == nil && downloadErr != nil && trackReader == nil {
 		m.Send(trackReadyMsg{generation: generation, track: track, err: downloadErr})
 		return
 	}
 
-	trackBuffer := stream.NewBufferedStream(trackReader, trackSize)
+	if trackBuffer == nil {
+		trackBuffer = stream.NewBufferedStream(trackReader, trackSize)
+	}
 	m.writeTrackMetadata(track, trackBuffer, trackFromCache, coverType, coverBytes)
 	// the loudness is measured here, in the background, instead of on the
 	// audio thread: it decodes ten seconds of audio and used to freeze the
@@ -522,6 +528,7 @@ func (m *Model) applyLoadedTrack(msg trackReadyMsg) {
 	if m.client != nil {
 		go m.client.PlayTrack(track, msg.fromCache)
 	}
+	m.preloadNextTrack()
 }
 
 // nextTrackTitle returns a human readable name of the track that will be

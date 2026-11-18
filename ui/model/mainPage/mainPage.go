@@ -22,6 +22,7 @@ import (
 	"github.com/phantom-lancer/yatui/ui/model"
 	"github.com/phantom-lancer/yatui/ui/model/hotkeys"
 	"github.com/phantom-lancer/yatui/ui/style"
+	"github.com/phantom-lancer/yatui/updater"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -157,9 +158,23 @@ type Model struct {
 	// scrobbleGen invalidates the pending Last.fm scrobble
 	scrobbleGen int64
 
+	preload preloadState
+
+	// Updates are checked only after the user activates the settings row.
+	updateStatus      string
+	updateRelease     *updater.Release
+	updateChecking    bool
+	updateDownloading bool
+
 	// rgbRunning is set while the rgb color loop is alive, so switching the
 	// theme on and off never starts a second loop
 	rgbRunning bool
+
+	// winter animation uses one low-frequency timer only while visible effects
+	// are enabled. Generation invalidates an already queued tick on disable.
+	winterRunning    bool
+	winterGeneration uint64
+	winterFrame      uint64
 
 	// idle rendering caches the last completed frame while high-frequency
 	// motion/progress messages are coalesced.
@@ -176,7 +191,7 @@ type Model struct {
 
 // mainpage.Model constructor.
 func New(mediaHandler handler.MediaHandler) *Model {
-	m := &Model{}
+	m := &Model{updateStatus: "не проверено"}
 
 	// all motion: the selection follows the cursor, the way "hover" works
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
@@ -215,6 +230,7 @@ func (m *Model) Run() error {
 	go m.mediaHandle()
 	_, err := m.program.Run()
 	m.tracker.Stop()
+	m.clearPreload()
 	return err
 }
 
@@ -233,7 +249,7 @@ func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
 	go m.pruneCoverCache()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, m.startDiscordTick(), m.rgbStart())
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, m.startDiscordTick(), m.rgbStart(), m.winterStart())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -302,6 +318,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case rgbTickMsg:
 		return m, m.handleRgbTick()
+	case winterTickMsg:
+		return m, m.handleWinterTick(msg)
+	case updateCheckMsg:
+		return m, m.handleUpdateCheck(msg)
+	case updateDownloadMsg:
+		return m, m.handleUpdateDownload(msg)
 	case discordTickMsg:
 		if msg.generation != m.discordTickGeneration || !m.discordTickRunning {
 			return m, nil
@@ -731,7 +753,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.showPlayStateToast()
 			m.discordRefresh(false)
 		case tracker.STOP:
-			// a stop drops the download that may still be on its way
+			// a stop drops both the current download and the one-track prefetch
+			m.clearPreload()
 			m.playGeneration++
 			m.loadingTrackId = ""
 			m.scrobbleCancel()
@@ -808,6 +831,7 @@ func (m *Model) View() string {
 		view = m.viewBody()
 	}
 	view = drawVersion(view)
+	view = drawWinterOverlay(view, m.winterFrame)
 	view = m.drawToasts(view)
 	m.idleFrame = view
 	m.idleFrameValid = true

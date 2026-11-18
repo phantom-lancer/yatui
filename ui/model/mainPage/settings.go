@@ -515,6 +515,16 @@ func (m *Model) buildSettings() []settingItem {
 				return m.lastfmSetupCmd()
 			},
 		},
+		{
+			label: "Обновления",
+			kind:  settingChoice,
+			value: func() string {
+				return m.updateStatusText()
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.checkUpdatesCmd()
+			},
+		},
 		m.discordSettingItem(),
 		{
 			label: "Конфиг",
@@ -526,6 +536,42 @@ func (m *Model) buildSettings() []settingItem {
 				return openConfig()
 			},
 		},
+	}
+
+	if m.updateRelease != nil {
+		items = append(items, settingItem{
+			label: "Установить обновление",
+			kind:  settingChoice,
+			value: func() string {
+				if m.updateDownloading {
+					return "скачивание..."
+				}
+				return m.updateRelease.TagName
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.downloadUpdateCmd()
+			},
+		})
+	}
+
+	if winterActive() {
+		items = append(items,
+			settingItem{
+				label: "Снег",
+				kind:  settingChoice,
+				value: func() string { return winterIntensityLabel(winterIntensity()) },
+				apply: func(dir int) tea.Cmd {
+					value := (winterIntensity() + dir + 4) % 4
+					return m.applyWinterIntensity(value)
+				},
+			},
+			settingItem{
+				label: "Гирлянда",
+				kind:  settingBool,
+				value: func() string { return onOff(config.Current.WinterGarland) },
+				apply: func(dir int) tea.Cmd { return m.toggleWinterGarland() },
+			},
+		)
 	}
 
 	// the whole animated theme is configured in its own panel: one row here

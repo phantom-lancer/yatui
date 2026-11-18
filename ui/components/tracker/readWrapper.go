@@ -27,14 +27,16 @@ const (
 )
 
 type readWrapper struct {
-	program        *tea.Program
-	decoder        *mp3.Decoder
-	trackBuffer    *stream.BufferedStream
-	trackBuffered  bool
-	trackDone      bool
-	lastUpdateTime time.Time
-	normalization  normalization
-	measurePending bool
+	program          *tea.Program
+	decoder          *mp3.Decoder
+	trackBuffer      *stream.BufferedStream
+	deferEnded       bool
+	playbackProgress uint64
+	trackBuffered    bool
+	trackDone        bool
+	lastUpdateTime   time.Time
+	normalization    normalization
+	measurePending   bool
 	// meterSkip is set when the loudness of the track is already known or not
 	// needed: the whole track must not be measured again while it plays.
 	meterSkip  bool
@@ -56,6 +58,8 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 
 	w.trackBuffered = false
 	w.trackDone = false
+	w.deferEnded = false
+	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(0))
 	w.trackBuffer = reader
 	w.playMeter = nil
 	w.duckLogged = false
@@ -224,10 +228,6 @@ func (w *readWrapper) finalizeLoudness() {
 }
 
 func (w *readWrapper) Close() {
-	if w.decoder != nil {
-		w.decoder.Seek(0, io.SeekStart)
-	}
-
 	if w.trackBuffer != nil {
 		w.trackBuffer.Close()
 	}
@@ -295,13 +295,13 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 	if w.trackBuffer.IsDone() && !w.trackDone {
 		w.trackDone = true
 		w.finalizeLoudness()
-		w.decoder.Seek(0, io.SeekStart)
-		w.trackBuffer.Close()
-		go w.program.Send(ENDED)
-	} else if !w.trackDone && time.Since(w.lastUpdateTime) > _PROGRESS_UPDATE_PERIOD {
+		if !w.deferEnded {
+			w.trackBuffer.Close()
+			w.sendEnded()
+		}
+	} else if !w.trackDone && !w.deferEnded && time.Since(w.lastUpdateTime) > _PROGRESS_UPDATE_PERIOD {
 		w.lastUpdateTime = time.Now()
-		fraction := ProgressControl(w.trackBuffer.Progress())
-		go w.program.Send(fraction)
+		w.sendProgress(w.trackBuffer.Progress())
 	}
 
 	return
@@ -312,15 +312,49 @@ func (w *readWrapper) Seek(offset int64, whence int) (int64, error) {
 	if w.decoder == nil {
 		return 0, io.EOF
 	}
-	return w.decoder.Seek(offset, whence)
+	pos, err := w.decoder.Seek(offset, whence)
+	if err == nil {
+		w.trackDone = false
+		if w.deferEnded && w.trackBuffer != nil && w.trackBuffer.Length() > 0 {
+			fraction := float64(pos) / float64(w.trackBuffer.Length())
+			atomic.StoreUint64(&w.playbackProgress, math.Float64bits(fraction))
+		}
+	}
+	return pos, err
 }
 
 func (w *readWrapper) Length() int64 {
 	return w.trackBuffer.Length()
 }
 
-func (w *readWrapper) Progress() float64 {
+func (w *readWrapper) SourceProgress() float64 {
+	if w.trackBuffer == nil {
+		return 0
+	}
 	return w.trackBuffer.Progress()
+}
+
+func (w *readWrapper) Progress() float64 {
+	if w.deferEnded {
+		return math.Float64frombits(atomic.LoadUint64(&w.playbackProgress))
+	}
+	if w.trackBuffer == nil {
+		return 0
+	}
+	return w.trackBuffer.Progress()
+}
+
+func (w *readWrapper) sendProgress(fraction float64) {
+	atomic.StoreUint64(&w.playbackProgress, math.Float64bits(fraction))
+	if w.program != nil {
+		go w.program.Send(ProgressControl(fraction))
+	}
+}
+
+func (w *readWrapper) sendEnded() {
+	if w.program != nil {
+		go w.program.Send(ENDED)
+	}
 }
 
 // SampleRate returns the sample rate the track is decoded with.

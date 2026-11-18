@@ -45,6 +45,12 @@ func TestThemePresetsAreComplete(t *testing.T) {
 	}
 }
 
+func TestDefaultWinterSettings(t *testing.T) {
+	if defaultConfig.WinterIntensity != 2 || !defaultConfig.WinterGarland {
+		t.Fatalf("unexpected winter defaults: intensity=%d garland=%v", defaultConfig.WinterIntensity, defaultConfig.WinterGarland)
+	}
+}
+
 func TestThemeColors(t *testing.T) {
 	colors, ok := ThemeColors("nord")
 	if !ok {
