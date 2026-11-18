@@ -96,10 +96,11 @@ func TestSettingsViewKeepsSingleLineRows(t *testing.T) {
 func TestSettingsNavigationSkipsSectionHeaders(t *testing.T) {
 	s := &settingsModel{
 		items: []settingItem{
-			{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingInfo},
+			{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingSection},
 			{label: "Громкость", kind: settingNumber},
-			{label: "ВНЕШНИЙ ВИД", kind: settingInfo},
+			{label: "ВНЕШНИЙ ВИД", kind: settingSection},
 			{label: "Тема", kind: settingChoice},
+			{label: "Конфиг", kind: settingInfo},
 		},
 	}
 	s.index = 0
@@ -112,11 +113,15 @@ func TestSettingsNavigationSkipsSectionHeaders(t *testing.T) {
 		t.Fatalf("down skipped to %d, want setting 3", s.index)
 	}
 	s.down()
-	if s.index != 1 {
-		t.Fatalf("down wrap skipped to %d, want setting 1", s.index)
+	if s.index != 4 {
+		t.Fatalf("actionable info row was skipped: index = %d, want 4", s.index)
 	}
 	s.up()
 	if s.index != 3 {
-		t.Fatalf("up wrap skipped to %d, want setting 3", s.index)
+		t.Fatalf("up from info row = %d, want setting 3", s.index)
+	}
+	s.down()
+	if s.index != 4 {
+		t.Fatalf("down to info row = %d, want 4", s.index)
 	}
 }

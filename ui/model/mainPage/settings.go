@@ -23,6 +23,7 @@ const (
 	settingNumber
 	settingChoice
 	settingInfo
+	settingSection
 )
 
 // settingItem is a single row of the settings dialog. dir is -1 for "left",
@@ -169,7 +170,7 @@ func (s *settingsModel) move(direction int) {
 	}
 	for range s.items {
 		s.index = (s.index + direction + len(s.items)) % len(s.items)
-		if s.items[s.index].kind != settingInfo {
+		if s.items[s.index].kind != settingSection {
 			return
 		}
 	}
@@ -211,10 +212,10 @@ func (s *settingsModel) view() string {
 		// where the left and the right mouse buttons are, and the halves of
 		// the value area work the way the arrows point
 		valueCell := padLeft(value, valueWidth)
-		if item.kind == settingInfo {
+		if item.kind == settingSection {
 			valueCell = strings.Repeat(" ", valueWidth)
 		}
-		if i == s.index && item.kind != settingInfo && valueWidth >= 6 {
+		if i == s.index && item.kind != settingSection && valueWidth >= 6 {
 			valueCell = "‹ " + padLeft(value, valueWidth-4) + " ›"
 		}
 
@@ -223,7 +224,7 @@ func (s *settingsModel) view() string {
 		line := padRight(item.label, labelWidth) + "  " + valueCell
 
 		rowStyle := lipgloss.NewStyle().Padding(0, 1)
-		if item.kind == settingInfo {
+		if item.kind == settingSection {
 			rowStyle = rowStyle.Foreground(style.AccentColor).Bold(true)
 		} else if i == s.index {
 			rowStyle = rowStyle.
@@ -339,7 +340,7 @@ func (m *Model) settingsControl(message tea.Msg) (tea.Cmd, bool) {
 // current state.
 func (m *Model) buildSettings() []settingItem {
 	items := []settingItem{
-		{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingInfo},
+		{label: "ВОСПРОИЗВЕДЕНИЕ", kind: settingSection},
 		{
 			label: "Громкость",
 			kind:  settingNumber,
@@ -457,7 +458,7 @@ func (m *Model) buildSettings() []settingItem {
 				return nil
 			},
 		},
-		{label: "ВНЕШНИЙ ВИД", kind: settingInfo},
+		{label: "ВНЕШНИЙ ВИД", kind: settingSection},
 		{
 			label: "Тема",
 			kind:  settingChoice,
@@ -513,7 +514,7 @@ func (m *Model) buildSettings() []settingItem {
 				return nil
 			},
 		},
-		{label: "СЕРВИСЫ И ОБНОВЛЕНИЯ", kind: settingInfo},
+		{label: "СЕРВИСЫ И ОБНОВЛЕНИЯ", kind: settingSection},
 		{
 			label: "Предзагрузка следующего трека",
 			kind:  settingBool,
