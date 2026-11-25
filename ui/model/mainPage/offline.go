@@ -1,6 +1,8 @@
 package mainpage
 
 import (
+	"sync/atomic"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/phantom-lancer/yatui/api"
@@ -23,6 +25,10 @@ func (m *Model) applyOfflineMode() tea.Cmd {
 
 	if config.Current.Offline {
 		m.client = nil
+		// a playlist download and the next-track prefetch would keep using
+		// the network; the offline mode must not
+		atomic.AddInt64(&m.offlineDownloadGen, 1)
+		m.clearPreload()
 		m.stopDiscordTick()
 		m.showToast("Офлайн-режим: вкл")
 	} else {

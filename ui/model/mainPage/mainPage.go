@@ -210,6 +210,9 @@ type Model struct {
 	vizContentW, vizContentH int
 	vizTicking               bool
 	vizGeneration            uint64
+
+	// offlineDownloadGen cancels a playlist download when a new one starts.
+	offlineDownloadGen int64
 }
 
 // mainpage.Model constructor.
@@ -541,6 +544,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bufferedTrackCachedMsg:
 		return m, m.applyBufferedTrackCached(msg)
+
+	case offlineDownloadMsg:
+		return m, m.applyOfflineDownload(msg)
 
 	case stationSessionMsg:
 		return m, m.applyStationSession(msg)

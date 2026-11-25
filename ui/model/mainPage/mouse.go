@@ -747,6 +747,12 @@ func (m *Model) openPlaylistMenu(pl *playlist.Item, x, y int) {
 					return m.queuePlaylist(pl)
 				},
 			},
+			contextMenuItem{
+				label: "Скачать для офлайна",
+				action: func(m *Model) tea.Cmd {
+					return m.downloadPlaylistForOffline(pl)
+				},
+			},
 		)
 	}
 
