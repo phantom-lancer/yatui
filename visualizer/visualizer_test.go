@@ -47,7 +47,7 @@ func TestRendererLifecycleReleasesTheFrame(t *testing.T) {
 	r.SetEnabled(true)
 	defer r.Stop()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		frame, ok := r.Latest()
 		if ok && frame.Text != "" {

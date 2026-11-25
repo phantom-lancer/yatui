@@ -19,6 +19,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CONFIG_HOME", home+"/.config")
 	os.Setenv("XDG_CACHE_HOME", home+"/.cache")
 	os.Setenv("TMPDIR", home+"/tmp")
+	os.Setenv("TMP", home+"/tmp")
+	os.Setenv("TEMP", home+"/tmp")
 	os.MkdirAll(home+"/tmp", 0700)
 
 	code := m.Run()
