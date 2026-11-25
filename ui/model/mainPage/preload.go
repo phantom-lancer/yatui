@@ -96,7 +96,8 @@ func (m *Model) preloadNextTrack() {
 		_ = old.buffer.Close()
 	}
 
-	if m.client == nil {
+	client := m.client
+	if client == nil {
 		return
 	}
 	track := m.nextTrackForPreload()
@@ -109,7 +110,7 @@ func (m *Model) preloadNextTrack() {
 
 	trackCopy := *track
 	go func() {
-		infos, err := m.client.TrackDownloadInfo(trackCopy.Id)
+		infos, err := client.TrackDownloadInfo(trackCopy.Id)
 		if err != nil {
 			log.Print(log.LVL_INFO, "next track prefetch skipped: %s", err)
 			return
@@ -127,7 +128,7 @@ func (m *Model) preloadNextTrack() {
 			return
 		}
 
-		reader, size, err := m.client.DownloadTrack(bestInfo)
+		reader, size, err := client.DownloadTrack(bestInfo)
 		if err != nil {
 			log.Print(log.LVL_INFO, "next track prefetch skipped: %s", err)
 			return

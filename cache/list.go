@@ -34,6 +34,11 @@ func ListTracks() ([]api.Track, error) {
 		if entry.IsDir() || ext != ".mp3" {
 			continue
 		}
+		// an empty file is a failed download, not a track: listing it would
+		// offer a track that cannot be played
+		if stat, err := entry.Info(); err != nil || stat.Size() == 0 {
+			continue
+		}
 
 		tag, err := id3v2.Open(filepath.Join(dir, name), id3v2.Options{Parse: true})
 		if err != nil {

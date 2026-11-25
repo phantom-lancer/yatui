@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/ui/style"
 )
 
@@ -20,7 +21,7 @@ func (m *Model) settingsButtonView() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.footerButton("Поиск", "/", m.searchHover),
-		m.footerButton("Настройки", "F9", m.settingsHover),
+		m.footerButton("Настройки", config.Current.Controls.Settings.Display(), m.settingsHover),
 	)
 }
 

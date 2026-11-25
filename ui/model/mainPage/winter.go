@@ -115,6 +115,9 @@ func winterIntensity() int {
 }
 
 func winterMotionEnabled() bool {
+	if config.Current.ResourceSaver {
+		return false
+	}
 	return winterActive() && (winterDensity() > 0 || config.Current.WinterGarland)
 }
 

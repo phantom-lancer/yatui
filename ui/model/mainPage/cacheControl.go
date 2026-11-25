@@ -245,6 +245,8 @@ func (m *Model) applyDownloadedTrack(msg trackDownloadedMsg) tea.Cmd {
 		}
 		m.indicateCurrentTrackPlaying(m.tracker.IsPlaying())
 		m.showToast("Скачано: " + msg.track.Title)
+		// the offline catalog learns about the new track at once
+		m.saveOfflineCatalog()
 		return cmd
 	}
 	return nil

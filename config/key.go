@@ -2,6 +2,7 @@ package config
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -19,6 +20,14 @@ func NewKey(key string) *Key {
 		keyNames:    prepareToProccess(key),
 	}
 	return k
+}
+
+// Display returns the keys the way the user sees them, e.g. "F11".
+func (k *Key) Display() string {
+	if k == nil {
+		return ""
+	}
+	return k.displayName
 }
 
 func (k *Key) IsEmpty() bool {
@@ -71,5 +80,11 @@ func prepareToDisplay(key string) string {
 	s = strings.ReplaceAll(s, "down", "↓")
 	s = strings.ReplaceAll(s, "left", "←")
 	s = strings.ReplaceAll(s, "right", "→")
+	// function keys read better in capitals: F9, not f9
+	if len(s) > 1 && s[0] == 'f' {
+		if _, err := strconv.Atoi(s[1:]); err == nil {
+			s = strings.ToUpper(s)
+		}
+	}
 	return s
 }

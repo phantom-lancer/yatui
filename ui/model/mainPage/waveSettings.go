@@ -434,8 +434,9 @@ func (m *Model) openWaveSettings() tea.Cmd {
 	m.isWaveActive = true
 	m.wave = &waveSettingsModel{loading: true}
 
+	client := m.client
 	go func() {
-		m.Send(waveStationsMsg{stations: m.loadStations()})
+		m.Send(waveStationsMsg{stations: loadStations(client)})
 	}()
 
 	return tea.ClearScreen
@@ -622,7 +623,8 @@ func (m *Model) applyWaveSettings() tea.Cmd {
 	m.waveGeneration++
 	generation := m.waveGeneration
 
-	if m.client == nil {
+	client := m.client
+	if client == nil {
 		return nil
 	}
 
@@ -630,10 +632,10 @@ func (m *Model) applyWaveSettings() tea.Cmd {
 	go func() {
 		defer m.Send(LOADING_DONE)
 
-		session, err := m.client.RotorNewSessionWithSeeds(seeds)
+		session, err := client.RotorNewSessionWithSeeds(seeds)
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to start the wave: %s", err)
-			m.tracker.ShowError("wave session")
+			m.reportError("wave session")
 			return
 		}
 

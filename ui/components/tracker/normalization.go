@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/phantom-lancer/yatui/api"
-	"github.com/phantom-lancer/yatui/config"
 )
 
 // _NORMALIZATION_CEILING is the loudest sample the peak guard allows: a
@@ -24,13 +23,6 @@ type normalization struct {
 }
 
 var noNormalization = normalization{linear: 1, limit: 1}
-
-// normalizationEnabled reports whether the config asks for the normalized
-// playback. The key is optional: without it the normalization is on.
-func normalizationEnabled() bool {
-	cfg := config.Current.Normalization
-	return cfg != nil && cfg.Enabled
-}
 
 // newGainNormalization turns a correction in decibels and the peak the track
 // was measured with into the multipliers of the audio callback.
@@ -58,9 +50,11 @@ func newGainNormalization(gainDB, peak float64) normalization {
 // into multipliers. The second return value reports that the track has no gain
 // info (which is the case for every track nowadays) and that the loudness of
 // the track has to be measured locally.
-func newNormalization(track *api.Track) (normalization, bool) {
+// enabled is the state of the setting as a snapshot: the audio thread and the
+// download workers must not read the mutable config.
+func newNormalization(track *api.Track, enabled bool) (normalization, bool) {
 	n := noNormalization
-	if !normalizationEnabled() {
+	if !enabled {
 		return n, false
 	}
 	if track == nil {

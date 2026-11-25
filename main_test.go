@@ -8,28 +8,30 @@ import (
 )
 
 // TestParseArgs checks the command line: --login forces the login page, the
-// version flags print the version, and the flags may come in any order.
+// version flags print the version, --offline and --doctor are independent and
+// the flags may come in any order.
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
-		args        []string
-		forceLogin  bool
-		showVersion bool
+		args     []string
+		expected cliOptions
 	}{
 		{args: nil},
-		{args: []string{"--login"}, forceLogin: true},
-		{args: []string{"-login"}, forceLogin: true},
-		{args: []string{"--version"}, showVersion: true},
-		{args: []string{"-v"}, showVersion: true},
-		{args: []string{"version"}, showVersion: true},
-		{args: []string{"--login", "--version"}, forceLogin: true, showVersion: true},
+		{args: []string{"--login"}, expected: cliOptions{forceLogin: true}},
+		{args: []string{"-login"}, expected: cliOptions{forceLogin: true}},
+		{args: []string{"--version"}, expected: cliOptions{showVersion: true}},
+		{args: []string{"-v"}, expected: cliOptions{showVersion: true}},
+		{args: []string{"version"}, expected: cliOptions{showVersion: true}},
+		{args: []string{"--login", "--version"}, expected: cliOptions{forceLogin: true, showVersion: true}},
+		{args: []string{"--offline"}, expected: cliOptions{offline: true}},
+		{args: []string{"offline"}, expected: cliOptions{offline: true}},
+		{args: []string{"--doctor"}, expected: cliOptions{doctor: true}},
+		{args: []string{"--doctor", "--json"}, expected: cliOptions{doctor: true, doctorJSON: true}},
 		{args: []string{"--unknown"}},
 	}
 
 	for _, c := range cases {
-		forceLogin, showVersion := parseArgs(c.args)
-		if forceLogin != c.forceLogin || showVersion != c.showVersion {
-			t.Errorf("parseArgs(%q) = %v, %v; want %v, %v",
-				c.args, forceLogin, showVersion, c.forceLogin, c.showVersion)
+		if got := parseArgs(c.args); got != c.expected {
+			t.Errorf("parseArgs(%q) = %+v; want %+v", c.args, got, c.expected)
 		}
 	}
 }

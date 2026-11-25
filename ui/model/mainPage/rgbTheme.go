@@ -55,7 +55,8 @@ func rgbFrameInterval() time.Duration {
 
 // rgbActive reports whether the animated theme is on.
 func rgbActive() bool {
-	return config.Current.Style != nil && config.Current.Style.Theme == "rgb"
+	return !config.Current.ResourceSaver &&
+		config.Current.Style != nil && config.Current.Style.Theme == "rgb"
 }
 
 // rgbSpeed returns the configured speed in 1..rgbMaxSpeed ticks per step.

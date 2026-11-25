@@ -3,9 +3,34 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/phantom-lancer/yatui/config"
 )
+
+// The cache directory is resolved once and then guarded by its own lock: the
+// download workers, the audio thread and the UI all ask for it, and reading
+// config.Current from those goroutines was a data race. main calls SetDir
+// after the config is loaded; without it the user cache directory is used,
+// which keeps the package usable from tests.
+var (
+	dirMu   sync.RWMutex
+	dirPath string
+)
+
+// SetDir selects the cache directory explicitly. An empty value restores the
+// default location.
+func SetDir(path string) {
+	dirMu.Lock()
+	dirPath = path
+	dirMu.Unlock()
+}
+
+func configuredDir() string {
+	dirMu.RLock()
+	defer dirMu.RUnlock()
+	return dirPath
+}
 
 func getCacheDir() (string, error) {
 	var (
@@ -13,23 +38,26 @@ func getCacheDir() (string, error) {
 		err      error
 	)
 
-	if len(config.Current.CacheDir) == 0 {
+	if configured := configuredDir(); configured != "" {
+		cacheDir, err = filepath.Abs(configured)
+		if err != nil {
+			return "", err
+		}
+	} else {
 		userDir, err := os.UserCacheDir()
 		if err != nil {
 			return "", err
 		}
 		cacheDir = filepath.Join(userDir, config.DirName)
-	} else {
-		cacheDir, err = filepath.Abs(config.Current.CacheDir)
-		if err != nil {
-			return "", err
-		}
 	}
 
-	err = os.MkdirAll(cacheDir, 0755)
+	err = os.MkdirAll(cacheDir, 0700)
 	if err != nil {
 		return "", err
 	}
+	// Tracks and the loudness database are user data. Old versions created
+	// the directory world readable; tighten it when it is opened.
+	_ = os.Chmod(cacheDir, 0700)
 
 	return cacheDir, nil
 }
@@ -67,6 +95,7 @@ func Write(trackId string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = file.Chmod(0600)
 
 	return file, nil
 }
@@ -90,6 +119,7 @@ func Commit(file *os.File, trackId string) error {
 		os.Remove(tmpName)
 		return err
 	}
+	_ = os.Chmod(tmpName, 0600)
 
 	return os.Rename(tmpName, filepath.Join(dir, trackId+".mp3"))
 }
@@ -119,4 +149,17 @@ func Exists(trackId string) bool {
 
 	_, err = os.Stat(filepath.Join(dir, trackId+".mp3"))
 	return err == nil
+}
+
+// Size returns the size of the cached track.
+func Size(trackId string) (int64, error) {
+	dir, err := getCacheDir()
+	if err != nil {
+		return 0, err
+	}
+	stat, err := os.Stat(filepath.Join(dir, trackId+".mp3"))
+	if err != nil {
+		return 0, err
+	}
+	return stat.Size(), nil
 }

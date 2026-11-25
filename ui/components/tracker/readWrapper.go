@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	mp3 "github.com/dece2183/go-stream-mp3"
 	"github.com/phantom-lancer/yatui/api"
-	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/equalizer"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
@@ -51,8 +50,26 @@ type readWrapper struct {
 	// gainDB keeps the applied correction as the bits of a float64, so the UI
 	// can read it without touching the audio thread.
 	gainDB uint64
-	// eq applies the equalizer to the decoded PCM.
+	// eq applies the classic ten band equalizer to the decoded PCM.
 	eq *equalizer.Processor
+	// graphic is the fifteen band equalizer of the graphic view.
+	graphic *equalizer.GraphicProcessor
+	// graphicMode selects which engine is applied. Both keep their own
+	// gains and history, so switching the view neither loses the settings
+	// nor feeds the samples through two cascades.
+	graphicMode bool
+	// fastNormalization is read by the audio thread; it is stored as an
+	// atomic word so the UI can change it without a lock on the audio path.
+	fastNormalization uint32
+	// normalizationOn is the snapshot of the normalization setting. The
+	// audio path never reads the mutable config.
+	normalizationOn uint32
+	// amplitude is the peak of the last decoded buffer as the bits of a
+	// float32. The visualizer reads it from the UI thread without a lock.
+	amplitude uint32
+	// vizOn is the snapshot of the visualizer setting: with the visualizer
+	// off the audio thread does not scan the buffer at all.
+	vizOn uint32
 }
 
 func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track) error {
@@ -76,12 +93,17 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 		w.trackTitle = track.Title
 	}
 
-	w.normalization, w.measurePending = newNormalization(track)
+	w.normalization, w.measurePending = newNormalization(track, atomic.LoadUint32(&w.normalizationOn) != 0)
 
 	if w.eq == nil {
 		w.eq = equalizer.New()
 	} else {
 		w.eq.Reset()
+	}
+	if w.graphic == nil {
+		w.graphic = equalizer.NewGraphic()
+	} else {
+		w.graphic.Reset()
 	}
 
 	// a track that was played to the end before has its loudness measured
@@ -100,6 +122,7 @@ func (w *readWrapper) NewReader(reader *stream.BufferedStream, track *api.Track)
 	w.meterSkip = !w.measurePending
 
 	atomic.StoreUint64(&w.gainDB, math.Float64bits(w.normalization.gainDB()))
+	atomic.StoreUint32(&w.amplitude, 0)
 
 	w.decoder, err = mp3.NewDecoder(w.trackBuffer)
 	if err != nil {
@@ -121,7 +144,7 @@ func (w *readWrapper) measureLoudness() {
 		return
 	}
 
-	meter, _ := analyzeHead(w.decoder, w.trackTitle)
+	meter, _ := analyzeHead(w.decoder, w.trackTitle, atomic.LoadUint32(&w.fastNormalization) != 0)
 
 	// the analysis has consumed the head of the stream: put it back and start
 	// decoding from the very first frame again
@@ -145,14 +168,14 @@ func (w *readWrapper) measureLoudness() {
 // analyzeHead decodes the head of a track and returns the meter with the
 // measured loudness and the number of seconds it covers. The stream is left
 // right after the decoded part.
-func analyzeHead(decoder *mp3.Decoder, title string) (*loudnessMeter, int) {
+func analyzeHead(decoder *mp3.Decoder, title string, fast bool) (*loudnessMeter, int) {
 	meter := newLoudnessMeter(decoder.SampleRate())
 	bytesPerSecond := meter.sampleRate * 4
 	buffer := make([]byte, 32*1024)
 	wanted := bytesPerSecond * _LOUDNESS_ANALYSIS_SECONDS
 	// the quick measurement reads the first second only: cheap, and close
 	// enough thanks to the per-track correction measured while playing
-	if config.Current.Normalization != nil && config.Current.Normalization.Fast {
+	if fast {
 		wanted = bytesPerSecond
 	}
 	read := 0
@@ -183,11 +206,11 @@ func analyzeHead(decoder *mp3.Decoder, title string) (*loudnessMeter, int) {
 // before the track reaches the player. It runs in the download goroutine: the
 // first play of a track used to decode ten seconds of audio on the audio
 // thread, which froze the window for seconds when the track was switched.
-func MeasureTrack(reader *stream.BufferedStream, track *api.Track) {
+func MeasureTrack(reader *stream.BufferedStream, track *api.Track, fast, enabled bool) {
 	if reader == nil || track == nil {
 		return
 	}
-	if _, pending := newNormalization(track); !pending {
+	if _, pending := newNormalization(track, enabled); !pending {
 		return
 	}
 	if _, ok := lookupLoudness(track.Id); ok {
@@ -203,7 +226,7 @@ func MeasureTrack(reader *stream.BufferedStream, track *api.Track) {
 		return
 	}
 
-	meter, _ := analyzeHead(decoder, track.Title)
+	meter, _ := analyzeHead(decoder, track.Title, fast)
 
 	// the analysis has consumed the head of the stream: the player starts
 	// from the very first frame again
@@ -289,12 +312,25 @@ func (w *readWrapper) Read(dest []byte) (n int, err error) {
 		}
 
 		// the equalizer changes the tone of the track
-		w.eq.Apply(dest[:n])
+		if w.graphicMode {
+			w.graphic.Apply(dest[:n])
+		} else {
+			w.eq.Apply(dest[:n])
+		}
 
 		if guarded := w.normalization.apply(dest[:n]); guarded && !w.duckLogged {
 			w.duckLogged = true
 			log.Print(log.LVL_INFO, "normalization: track '%s' peak protection lowered the gain to %+.1f dB",
 				w.trackTitle, w.normalization.gainDB())
+		}
+
+		// the visualizer follows the music, not the decode loop: the peak of
+		// the buffer is enough and costs one pass over the samples. When the
+		// visualizer is off, even that pass is skipped.
+		if atomic.LoadUint32(&w.vizOn) != 0 {
+			atomic.StoreUint32(&w.amplitude, math.Float32bits(float32(pcmLevel(dest[:n]))))
+		} else {
+			atomic.StoreUint32(&w.amplitude, 0)
 		}
 	}
 
@@ -368,6 +404,26 @@ func (w *readWrapper) SourceProgress() float64 {
 		return 0
 	}
 	return clampPCMProgress(float64(atomic.LoadInt64(&w.decodedPosition)) / totalPCMBytes)
+}
+
+// pcmLevel returns the loudest sample of a stereo S16LE buffer as 0..1. It
+// runs on the audio thread, so it does not allocate and stops at the first
+// sample of a full scale peak.
+func pcmLevel(pcm []byte) float64 {
+	peak := 0
+	for i := 0; i+1 < len(pcm); i += 2 {
+		sample := int(int16(uint16(pcm[i]) | uint16(pcm[i+1])<<8))
+		if sample < 0 {
+			sample = -sample
+		}
+		if sample > peak {
+			peak = sample
+			if peak >= 32767 {
+				return 1
+			}
+		}
+	}
+	return float64(peak) / 32768
 }
 
 func clampPCMProgress(value float64) float64 {
@@ -447,5 +503,63 @@ func (w *readWrapper) SetEQRate(rate int) {
 	if w.eq == nil {
 		w.eq = equalizer.New()
 	}
+	if w.graphic == nil {
+		w.graphic = equalizer.NewGraphic()
+	}
 	w.eq.SetRate(rate)
+	w.graphic.SetRate(rate)
+}
+
+// SetGraphicEQ turns the fifteen band equalizer on or off.
+func (w *readWrapper) SetGraphicEQ(enabled bool, gains [equalizer.GraphicBands]float64) {
+	if w.graphic == nil {
+		w.graphic = equalizer.NewGraphic()
+	}
+	w.graphic.Set(enabled, gains)
+}
+
+// GraphicEQ reports the state of the fifteen band equalizer.
+func (w *readWrapper) GraphicEQ() (enabled bool, gains [equalizer.GraphicBands]float64) {
+	if w.graphic == nil {
+		return false, [equalizer.GraphicBands]float64{}
+	}
+	return w.graphic.Enabled(), w.graphic.Gains()
+}
+
+// SetEQMode selects the ten or the fifteen band engine.
+func (w *readWrapper) SetEQMode(graphic bool) {
+	w.graphicMode = graphic
+}
+
+// EQMode reports whether the graphic engine is selected.
+func (w *readWrapper) EQMode() bool {
+	return w.graphicMode
+}
+
+// SetVisualizer tells the audio thread whether the level is needed.
+func (w *readWrapper) SetVisualizer(enabled bool) {
+	if enabled {
+		atomic.StoreUint32(&w.vizOn, 1)
+	} else {
+		atomic.StoreUint32(&w.vizOn, 0)
+	}
+}
+
+// SetNormalization enables or disables the normalized playback. The value is
+// a snapshot: the audio thread reads the atomic word, not the config.
+func (w *readWrapper) SetNormalization(enabled bool) {
+	if enabled {
+		atomic.StoreUint32(&w.normalizationOn, 1)
+	} else {
+		atomic.StoreUint32(&w.normalizationOn, 0)
+	}
+}
+
+// SetFastNormalization selects the one second loudness measurement.
+func (w *readWrapper) SetFastNormalization(fast bool) {
+	if fast {
+		atomic.StoreUint32(&w.fastNormalization, 1)
+	} else {
+		atomic.StoreUint32(&w.fastNormalization, 0)
+	}
 }

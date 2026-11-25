@@ -380,7 +380,14 @@ func (m *Model) toggleSettings() {
 		return
 	}
 
-	m.settings = &settingsModel{width: 56, items: m.buildSettings()}
+	width := 56
+	if m.width > 0 && width > m.width-6 {
+		width = m.width - 6
+	}
+	if width < 28 {
+		width = 28
+	}
+	m.settings = &settingsModel{width: width, items: m.buildSettings()}
 	m.isSettingsActive = true
 }
 
@@ -512,6 +519,7 @@ func (m *Model) buildSettings() []settingItem {
 				}
 				config.Current.Normalization.Enabled = !config.Current.Normalization.Enabled
 				m.saveConfig()
+				m.tracker.SetNormalization(config.Current.Normalization.Enabled)
 				m.showToast("Нормализация: " + onOff(config.Current.Normalization.Enabled))
 				return nil
 			},
@@ -533,6 +541,7 @@ func (m *Model) buildSettings() []settingItem {
 				}
 				config.Current.Normalization.Fast = !config.Current.Normalization.Fast
 				m.saveConfig()
+				m.tracker.SetFastNormalization(config.Current.Normalization.Fast)
 				if config.Current.Normalization.Fast {
 					m.showToast("Нормализация: быстрый замер")
 				} else {
@@ -575,6 +584,66 @@ func (m *Model) buildSettings() []settingItem {
 			apply: func(dir int) tea.Cmd {
 				m.tracker.SetLirycs(!m.tracker.Lyrics())
 				return nil
+			},
+		},
+		{
+			label: "Визуализатор «Моей волны»",
+			kind:  settingBool,
+			value: func() string {
+				return vizStatus()
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.toggleVisualizer()
+			},
+		},
+		{
+			label: "Экономия ресурсов",
+			kind:  settingBool,
+			value: func() string {
+				return onOff(config.Current.ResourceSaver)
+			},
+			apply: func(dir int) tea.Cmd {
+				config.Current.ResourceSaver = !config.Current.ResourceSaver
+				m.saveConfig()
+				return m.applyResourceSaving()
+			},
+		},
+		{
+			label: "Классический вид эквалайзера",
+			kind:  settingBool,
+			value: func() string {
+				if config.Current.Equalizer == nil || !config.Current.Equalizer.ClassicView {
+					return "выкл (графический)"
+				}
+				return "вкл (10 полос)"
+			},
+			apply: func(dir int) tea.Cmd {
+				if config.Current.Equalizer == nil {
+					config.Current.Equalizer = &config.Equalizer{}
+				}
+				config.Current.Equalizer.ClassicView = !config.Current.Equalizer.ClassicView
+				m.saveConfig()
+				m.applySavedEQ()
+				if m.eq != nil {
+					m.eq.graphic = !config.Current.Equalizer.ClassicView
+					m.eq.index = -1
+				}
+				if config.Current.Equalizer.ClassicView {
+					m.showToast("Эквалайзер: классический вид")
+				} else {
+					m.showToast("Эквалайзер: графический вид")
+				}
+				return nil
+			},
+		},
+		{
+			label: "Офлайн-режим",
+			kind:  settingBool,
+			value: func() string {
+				return offlineStatus()
+			},
+			apply: func(dir int) tea.Cmd {
+				return m.applyOfflineMode()
 			},
 		},
 		{

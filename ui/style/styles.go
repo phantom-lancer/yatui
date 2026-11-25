@@ -94,6 +94,24 @@ var (
 	ToastAccentStyle lipgloss.Style
 )
 
+// The shared building blocks of the interface. Keeping them here means the
+// hierarchy (a section label, a muted hint, an accented badge) looks the same
+// in every window instead of being reinvented by each component.
+var (
+	// SectionLabelStyle marks a group of rows: small, accented, bold.
+	SectionLabelStyle lipgloss.Style
+	// MutedStyle is the secondary text: counts, hints, timestamps.
+	MutedStyle lipgloss.Style
+	// BadgeStyle is a compact state marker, e.g. "офлайн" or "кэш".
+	BadgeStyle lipgloss.Style
+	// SidebarTitleStyle is the title of the playlist panel.
+	SidebarTitleStyle lipgloss.Style
+	// TrackListCountStyle is the muted count next to the track list title.
+	TrackListCountStyle lipgloss.Style
+	// KeyHintStyle is the key cap of a footer button or a help line.
+	KeyHintStyle lipgloss.Style
+)
+
 // SettingsButton is the small clickable block in the corner of the sidebar.
 var (
 	SettingsButtonStyle       lipgloss.Style
@@ -144,6 +162,7 @@ func Apply(style *config.Style) {
 
 	DialogTitleStyle = lipgloss.NewStyle().
 		Foreground(AccentColor).
+		Bold(true).
 		MarginLeft(2).
 		MarginBottom(1)
 	DialogBoxStyle = lipgloss.NewStyle().
@@ -154,6 +173,24 @@ func Apply(style *config.Style) {
 		BorderLeft(true).
 		BorderRight(true).
 		BorderBottom(true)
+
+	SectionLabelStyle = lipgloss.NewStyle().
+		Foreground(AccentColor).
+		Bold(true)
+	MutedStyle = lipgloss.NewStyle().
+		Foreground(InactiveTextColor)
+	BadgeStyle = lipgloss.NewStyle().
+		Foreground(BackgroundColor).
+		Background(AccentColor).
+		Padding(0, 1)
+	SidebarTitleStyle = lipgloss.NewStyle().
+		Foreground(AccentColor).
+		Bold(true).
+		Padding(0, 1)
+	TrackListCountStyle = lipgloss.NewStyle().
+		Foreground(InactiveTextColor)
+	KeyHintStyle = lipgloss.NewStyle().
+		Foreground(InactiveTextColor)
 	DialogHelpStyle = lipgloss.NewStyle().
 		PaddingLeft(2).
 		PaddingTop(1)
@@ -223,11 +260,13 @@ func Apply(style *config.Style) {
 	TrackListActiveStyle = lipgloss.NewStyle().
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(AccentColor)
+		BorderForeground(AccentColor).
+		Background(PlaylistSelectionColor)
 
 	ToastStyle = lipgloss.NewStyle().
 		Foreground(ActiveTextColor).
 		Background(PlaylistSelectionColor).
+		Bold(false).
 		Padding(0, 1)
 	ToastAccentStyle = lipgloss.NewStyle().
 		Foreground(AccentColor).

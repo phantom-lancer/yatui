@@ -24,6 +24,30 @@ var (
 	saveData  []byte
 )
 
+// Defaults returns the configuration a fresh install starts with. The doctor
+// uses it when no config file exists yet.
+func Defaults() Config {
+	conf := defaultConfig
+	if defaultConfig.Equalizer != nil {
+		eq := *defaultConfig.Equalizer
+		eq.Gains = append([]float64(nil), defaultConfig.Equalizer.Gains...)
+		eq.GraphicGains = append([]float64(nil), defaultConfig.Equalizer.GraphicGains...)
+		conf.Equalizer = &eq
+	}
+	return conf
+}
+
+// Dir returns the directory the config lives in.
+func Dir() (string, error) {
+	return getDir()
+}
+
+// LoadForDiagnostics reads and migrates the config in memory without writing
+// anything. The doctor uses it: a diagnostic run must not rewrite the file.
+func LoadForDiagnostics() (Config, error) {
+	return load()
+}
+
 func InitialLoad() error {
 	var err error
 
@@ -51,10 +75,13 @@ func getDir() (string, error) {
 	}
 
 	configDir := filepath.Join(userDir, ".config", DirName)
-	err = os.MkdirAll(configDir, 0755)
+	err = os.MkdirAll(configDir, 0700)
 	if err != nil {
 		return "", err
 	}
+	// An old install created the directory world readable. Tighten it on
+	// every start; a failure is not fatal because Windows has no mode bits.
+	_ = os.Chmod(configDir, 0700)
 
 	return configDir, nil
 }
@@ -65,10 +92,14 @@ func load() (Config, error) {
 		return defaultConfig, err
 	}
 
-	configContent, err := os.ReadFile(filepath.Join(configDir, "config.yaml"))
+	configPath := filepath.Join(configDir, "config.yaml")
+	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		return defaultConfig, err
 	}
+	// Older versions left the file world readable; the token inside it is
+	// private. Windows ignores the mode, so the error is not fatal.
+	_ = os.Chmod(configPath, 0600)
 
 	var newConfig Config
 	err = yaml.Unmarshal(configContent, &newConfig)
@@ -91,6 +122,9 @@ func load() (Config, error) {
 		}
 		if _, ok := configFields["winter-speed"]; !ok {
 			newConfig.WinterSpeed = defaultConfig.WinterSpeed
+		}
+		if _, ok := configFields["visualizer"]; !ok {
+			newConfig.VisualizerEnabled = defaultConfig.VisualizerEnabled
 		}
 		if _, ok := configFields["winter-density"]; !ok {
 			// Preserve the old 0..3 snow intensity when migrating an existing config.
@@ -159,14 +193,41 @@ func load() (Config, error) {
 	}
 
 	if newConfig.Equalizer == nil {
-		equalizer := *defaultConfig.Equalizer
-		newConfig.Equalizer = &equalizer
+		eq := *defaultConfig.Equalizer
+		eq.Gains = append([]float64(nil), defaultConfig.Equalizer.Gains...)
+		eq.GraphicGains = append([]float64(nil), defaultConfig.Equalizer.GraphicGains...)
+		newConfig.Equalizer = &eq
 	} else {
 		// the gains must cover all the bands: an old config may have fewer
 		if len(newConfig.Equalizer.Gains) < equalizer.Bands {
 			gains := make([]float64, equalizer.Bands)
 			copy(gains, newConfig.Equalizer.Gains)
 			newConfig.Equalizer.Gains = gains
+		}
+		if newConfig.Equalizer.Preset == "" {
+			newConfig.Equalizer.Preset = defaultConfig.Equalizer.Preset
+		}
+
+		// A config written before the graphic equalizer has no fifteen band
+		// values. They are derived from the ten band curve once, so the
+		// sound does not jump and the user's tuning is not lost. The original
+		// ten band values stay untouched for the classic view.
+		if len(newConfig.Equalizer.GraphicGains) != equalizer.GraphicBands {
+			legacy := equalizer.NormalizeGains(newConfig.Equalizer.Gains)
+			resampled := equalizer.ResampleGains(
+				equalizer.BandFrequencies[:],
+				legacy[:],
+				equalizer.GraphicFrequencies[:],
+			)
+			newConfig.Equalizer.GraphicGains = append([]float64(nil), resampled[:]...)
+		}
+		if newConfig.Equalizer.GraphicPreset == "" {
+			// A custom legacy curve has no matching modern preset.
+			if newConfig.Equalizer.Preset == equalizer.CustomPreset {
+				newConfig.Equalizer.GraphicPreset = equalizer.CustomPreset
+			} else {
+				newConfig.Equalizer.GraphicPreset = "Плоский"
+			}
 		}
 	}
 

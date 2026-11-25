@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/ui/components/tracker"
 )
 
@@ -16,7 +17,20 @@ import (
 const (
 	// idleRenderPeriod is the minimum interval between idle frames.
 	idleRenderPeriod = 80 * time.Millisecond
+
+	// saverIdleRenderPeriod is the same interval in the resource saving
+	// mode: half of the repaints, with no visual difference for the static
+	// parts of the screen.
+	saverIdleRenderPeriod = 200 * time.Millisecond
 )
+
+// frameInterval returns the idle cadence for the current settings.
+func frameInterval() time.Duration {
+	if config.Current.ResourceSaver {
+		return saverIdleRenderPeriod
+	}
+	return idleRenderPeriod
+}
 
 // idleRenderMsg is the postponed frame of an idle screen. Its generation
 // makes a stale timer harmless after a key/click or a newer frame is queued.
@@ -65,14 +79,14 @@ func (m *Model) frameDecision(message tea.Msg) (immediate bool, schedule bool) {
 		return true, false
 	}
 
-	if time.Since(m.progressDrawn) >= idleRenderPeriod {
+	if time.Since(m.progressDrawn) >= frameInterval() {
 		return true, false
 	}
 	return false, true
 }
 
 func idleRenderTick(generation uint64) tea.Cmd {
-	return tea.Tick(idleRenderPeriod, func(time.Time) tea.Msg {
+	return tea.Tick(frameInterval(), func(time.Time) tea.Msg {
 		return idleRenderMsg{generation: generation}
 	})
 }

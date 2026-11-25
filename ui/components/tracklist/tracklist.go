@@ -1,6 +1,7 @@
 package tracklist
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/phantom-lancer/yatui/config"
@@ -93,11 +94,16 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	titleLen := lipgloss.Width(m.Title)
+	// the count is a quiet secondary label next to the playlist name
+	title := m.Title
+	if count := len(m.list.Items()); count > 0 {
+		title += style.TrackListCountStyle.Render(fmt.Sprintf("  %d", count))
+	}
+	titleLen := lipgloss.Width(title)
 	if titleLen > m.width-8 {
-		m.list.Title = lipgloss.NewStyle().MaxWidth(m.width-9).Render(m.Title) + "…"
+		m.list.Title = lipgloss.NewStyle().MaxWidth(m.width-9).Render(title) + "…"
 	} else {
-		m.list.Title = m.Title
+		m.list.Title = title
 	}
 
 	track := m.list.SelectedItem()
@@ -122,6 +128,16 @@ func (m *Model) View() string {
 
 	m.resetLayout()
 	listView := m.list.View()
+	if len(m.list.Items()) == 0 {
+		// a localized empty state with the next step instead of "No items."
+		listView = lipgloss.JoinVertical(
+			lipgloss.Left,
+			style.TrackListTitleStyle.Render(m.list.Title),
+			"",
+			style.MutedStyle.PaddingLeft(2).Render("Здесь пока нет треков"),
+			style.MutedStyle.PaddingLeft(2).Render("Выберите плейлист слева или нажмите "+config.Current.Controls.WaveSettings.Display()),
+		)
+	}
 	if lipgloss.Height(listView) <= m.list.Height() {
 		lastLine := strings.LastIndex(listView[:len(listView)-1], "\n")
 		listView = listView[:lastLine] + "\n" + listView[lastLine:]

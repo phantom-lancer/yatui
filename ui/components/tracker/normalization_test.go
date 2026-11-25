@@ -26,21 +26,24 @@ func readSamples(buf []byte) []int16 {
 	return samples
 }
 
-func setNormalization(t *testing.T, enabled bool) {
+// setNormalization returns the setting as a snapshot, the way the player
+// hands it to the audio path: the config itself is not read there anymore.
+func setNormalization(t *testing.T, enabled bool) bool {
 	t.Helper()
 	previous := config.Current.Normalization
 	config.Current.Normalization = &config.Normalization{Enabled: enabled}
 	t.Cleanup(func() { config.Current.Normalization = previous })
+	return enabled
 }
 
 func TestNormalizationDisabled(t *testing.T) {
-	setNormalization(t, false)
+	enabled := setNormalization(t, false)
 
 	track := &api.Track{}
 	track.Normalization.Gain = -6
 	track.Normalization.Peak = 0.9
 
-	n, _ := newNormalization(track)
+	n, _ := newNormalization(track, enabled)
 	if n.scale() {
 		t.Fatalf("disabled normalization must not scale, got %+v", n)
 	}
@@ -57,10 +60,10 @@ func TestNormalizationDisabled(t *testing.T) {
 }
 
 func TestNormalizationNoInfoIsMeasured(t *testing.T) {
-	setNormalization(t, true)
+	enabled := setNormalization(t, true)
 
 	// the API does not send the gain anymore: such tracks have to be measured
-	n, measure := newNormalization(&api.Track{})
+	n, measure := newNormalization(&api.Track{}, enabled)
 	if n.scale() {
 		t.Fatalf("track without gain info must not scale on its own, got %+v", n)
 	}
@@ -69,20 +72,19 @@ func TestNormalizationNoInfoIsMeasured(t *testing.T) {
 	}
 
 	// a disabled normalization must never measure anything
-	setNormalization(t, false)
-	if _, measure := newNormalization(&api.Track{}); measure {
+	if _, measure := newNormalization(&api.Track{}, setNormalization(t, false)); measure {
 		t.Fatal("disabled normalization must not measure the track")
 	}
 }
 
 func TestNormalizationAppliesGain(t *testing.T) {
-	setNormalization(t, true)
+	enabled := setNormalization(t, true)
 
 	track := &api.Track{}
 	track.Normalization.Gain = -6.0206 // ~ -1/2 in linear scale
 	track.Normalization.Peak = 0
 
-	n, _ := newNormalization(track)
+	n, _ := newNormalization(track, enabled)
 	if !n.scale() {
 		t.Fatal("expected scaling to be enabled")
 	}
@@ -102,13 +104,13 @@ func TestNormalizationAppliesGain(t *testing.T) {
 }
 
 func TestNormalizationPeakLimiting(t *testing.T) {
-	setNormalization(t, true)
+	enabled := setNormalization(t, true)
 
 	track := &api.Track{}
 	track.Normalization.Gain = 6 // +6 dB => linear ~2.0
 	track.Normalization.Peak = 0.8
 
-	n, _ := newNormalization(track)
+	n, _ := newNormalization(track, enabled)
 	if !n.scale() {
 		t.Fatal("expected scaling to be enabled")
 	}
@@ -131,13 +133,13 @@ func TestNormalizationPeakLimiting(t *testing.T) {
 }
 
 func TestNormalizationClampsInvalidGain(t *testing.T) {
-	setNormalization(t, true)
+	enabled := setNormalization(t, true)
 
 	// a broken value from the API must not be able to destroy the audio
 	track := &api.Track{}
 	track.Normalization.Gain = 200
 
-	n, _ := newNormalization(track)
+	n, _ := newNormalization(track, enabled)
 	if n.linear > 10 {
 		t.Fatalf("gain was not clamped: %f", n.linear)
 	}

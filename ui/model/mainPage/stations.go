@@ -21,7 +21,7 @@ var (
 )
 
 // loadStations returns the available stations, fetching them on the first call.
-func (m *Model) loadStations() []api.StationDesc {
+func loadStations(client *api.YaMusicClient) []api.StationDesc {
 	stationsMu.Lock()
 	defer stationsMu.Unlock()
 
@@ -29,11 +29,11 @@ func (m *Model) loadStations() []api.StationDesc {
 		return stationsCache
 	}
 
-	if m.client == nil {
+	if client == nil {
 		return nil
 	}
 
-	stations, err := m.client.Stations("ru")
+	stations, err := client.Stations("ru")
 	if err != nil {
 		log.Print(log.LVL_ERROR, "failed to obtain the stations list: %s", err)
 		return nil
@@ -81,7 +81,7 @@ func cachedStations() []api.StationDesc {
 
 // openStationPicker shows the window with the available stations.
 func (m *Model) openStationPicker(x, y int) tea.Cmd {
-	if len(m.loadStations()) == 0 {
+	if len(loadStations(m.client)) == 0 {
 		m.tracker.ShowError("stations list")
 		return nil
 	}
@@ -89,9 +89,16 @@ func (m *Model) openStationPicker(x, y int) tea.Cmd {
 	return m.openStations()
 }
 
+// stationSessionMsg carries a started station back to the UI loop.
+type stationSessionMsg struct {
+	item *playlist.Item
+	err  bool
+}
+
 // startStation begins a radio session for the given station.
 func (m *Model) startStation(desc api.StationDesc) tea.Cmd {
-	if m.client == nil {
+	client := m.client
+	if client == nil {
 		return nil
 	}
 
@@ -100,14 +107,14 @@ func (m *Model) startStation(desc api.StationDesc) tea.Cmd {
 	go func() {
 		defer m.Send(LOADING_DONE)
 
-		session, err := m.client.RotorNewSession(desc.Station.Id)
+		session, err := client.RotorNewSession(desc.Station.Id)
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to start the [%s] station: %s", desc.Station.Name, err)
-			m.tracker.ShowError("station session")
+			m.Send(stationSessionMsg{err: true})
 			return
 		}
 		if len(session.Sequence) == 0 {
-			m.tracker.ShowError("station session")
+			m.Send(stationSessionMsg{err: true})
 			return
 		}
 
@@ -128,8 +135,18 @@ func (m *Model) startStation(desc api.StationDesc) tea.Cmd {
 			item.StationId = session.Id
 		}
 
-		m.insertSidebarItem(item)
+		m.Send(stationSessionMsg{item: item})
 	}()
 
 	return m.spinner.Tick
+}
+
+// applyStationSession adds the started station to the sidebar.
+func (m *Model) applyStationSession(msg stationSessionMsg) tea.Cmd {
+	if msg.err || msg.item == nil {
+		m.tracker.ShowError("station session")
+		return nil
+	}
+	m.insertSidebarItem(msg.item)
+	return nil
 }
