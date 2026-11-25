@@ -154,3 +154,31 @@ func sinePCM(freq, rate int, amplitude float64, samples int) []byte {
 	}
 	return pcm
 }
+
+func TestGraphicRampsTowardsTheTarget(t *testing.T) {
+	p := NewGraphic()
+	var flat [GraphicBands]float64
+	p.Set(true, flat)
+
+	var target [GraphicBands]float64
+	target[8] = 12
+	p.Set(true, target)
+
+	if !p.ramping {
+		t.Fatal("a large change must ramp, not jump")
+	}
+	if p.current[8] != 0 {
+		t.Fatalf("the applied gain jumped to %.2f dB", p.current[8])
+	}
+
+	buf := sinePCM(1000, 44100, 0.1, 512)
+	for i := 0; i < 200 && p.ramping; i++ {
+		p.Apply(buf)
+	}
+	if p.ramping {
+		t.Fatal("the ramp never finished")
+	}
+	if math.Abs(p.current[8]-12) > 0.01 {
+		t.Fatalf("the ramp stopped at %.2f dB", p.current[8])
+	}
+}

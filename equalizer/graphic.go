@@ -121,12 +121,21 @@ func interpolateLogGain(freqs, gains []float64, target float64) float64 {
 type GraphicProcessor struct {
 	mu      sync.Mutex
 	enabled bool
+	// gains is the target the user set; current follows it smoothly, so a
+	// preset or a dragged point does not click.
 	gains   [GraphicBands]float64
+	current [GraphicBands]float64
+	ramping bool
 	coeffs  [GraphicBands]biquad
 	active  []int
 	state   [GraphicBands][2]biquadState
 	rate    int
 }
+
+// graphicRampStep is how many decibels one audio buffer may move towards the
+// target. At about fifty buffers per second a full preset change takes half a
+// second, which is audible as a slide instead of a click.
+const graphicRampStep = 0.75
 
 // NewGraphic creates a graphic processor with flat settings.
 func NewGraphic() *GraphicProcessor {
@@ -140,9 +149,18 @@ func (p *GraphicProcessor) Set(enabled bool, gains [GraphicBands]float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	wasEnabled := p.enabled
 	p.enabled = enabled
 	p.gains = gains
-	p.recompute()
+	if !enabled || !wasEnabled {
+		// switching the equalizer on starts from the saved curve, not from
+		// a slow slide out of the flat one
+		p.current = gains
+		p.ramping = false
+		p.recompute()
+		return
+	}
+	p.ramping = p.current != gains
 }
 
 // SetRate sets the sample rate the coefficients are computed for.
@@ -190,7 +208,7 @@ func (p *GraphicProcessor) recompute() {
 		rate = DefaultRate
 	}
 
-	for i, gain := range p.gains {
+	for i, gain := range p.current {
 		if math.Abs(gain) > 0.01 {
 			p.active = append(p.active, i)
 		}
@@ -205,12 +223,47 @@ func (p *GraphicProcessor) recompute() {
 	}
 }
 
+// ramp moves the applied gains one step towards the target and recomputes the
+// coefficients when anything moved.
+func (p *GraphicProcessor) ramp() {
+	moved := false
+	done := true
+	for i := range p.current {
+		delta := p.gains[i] - p.current[i]
+		if math.Abs(delta) <= 0.01 {
+			continue
+		}
+		done = false
+		if delta > graphicRampStep {
+			delta = graphicRampStep
+		} else if delta < -graphicRampStep {
+			delta = -graphicRampStep
+		}
+		p.current[i] += delta
+		moved = true
+	}
+	if moved {
+		p.recompute()
+	}
+	if done {
+		p.current = p.gains
+		p.ramping = false
+		p.recompute()
+	}
+}
+
 // Apply processes stereo 16 bit little endian PCM in place.
 func (p *GraphicProcessor) Apply(pcm []byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.enabled || len(p.active) == 0 {
+	if !p.enabled {
+		return
+	}
+	if p.ramping {
+		p.ramp()
+	}
+	if len(p.active) == 0 {
 		return
 	}
 
