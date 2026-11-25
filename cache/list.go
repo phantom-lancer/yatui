@@ -39,6 +39,9 @@ func ListTracks() ([]api.Track, error) {
 		if stat, err := entry.Info(); err != nil || stat.Size() == 0 {
 			continue
 		}
+		// older versions wrote the tracks world readable; a cached track is
+		// user data, so tighten it while the file is already being opened
+		_ = os.Chmod(filepath.Join(dir, name), 0600)
 
 		tag, err := id3v2.Open(filepath.Join(dir, name), id3v2.Options{Parse: true})
 		if err != nil {
