@@ -110,6 +110,8 @@ var (
 	TrackListCountStyle lipgloss.Style
 	// KeyHintStyle is the key cap of a footer button or a help line.
 	KeyHintStyle lipgloss.Style
+	// BorderStyle paints the frame of a panel without re-measuring it.
+	BorderStyle lipgloss.Style
 )
 
 // SettingsButton is the small clickable block in the corner of the sidebar.
@@ -191,6 +193,8 @@ func Apply(style *config.Style) {
 		Foreground(InactiveTextColor)
 	KeyHintStyle = lipgloss.NewStyle().
 		Foreground(InactiveTextColor)
+	BorderStyle = lipgloss.NewStyle().
+		Foreground(BorderColor)
 	DialogHelpStyle = lipgloss.NewStyle().
 		PaddingLeft(2).
 		PaddingTop(1)

@@ -587,13 +587,13 @@ func (m *Model) buildSettings() []settingItem {
 			},
 		},
 		{
-			label: "Визуализатор «Моей волны»",
+			label: "Визуализатор «Моей волны» (выкл / панель / фон)",
 			kind:  settingBool,
 			value: func() string {
 				return vizStatus()
 			},
 			apply: func(dir int) tea.Cmd {
-				return m.toggleVisualizer()
+				return m.cycleVisualizer()
 			},
 		},
 		{

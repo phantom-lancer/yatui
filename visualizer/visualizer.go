@@ -34,23 +34,59 @@ type Palette struct {
 	Colors [6]RGB
 }
 
-// Frame is one rendered block of text.
+// Mode selects how the frame is delivered.
+type Mode int
+
+const (
+	// ModeOff stops the renderer.
+	ModeOff Mode = iota
+	// ModePanel delivers a half block frame for a separate panel.
+	ModePanel
+	// ModeBackground delivers one colour per cell for the background layer.
+	ModeBackground
+)
+
+// Frame is one rendered frame.
 type Frame struct {
+	// Text is the half block frame of the panel mode.
 	Text string
+	// Cells is one average colour per terminal cell of the background mode.
+	Cells []RGB
+	// Width and Height are the cell size of the frame.
+	Width, Height int
 	// Generation grows with every produced frame, so the UI can tell a new
 	// frame from the previous one without comparing the whole string.
 	Generation uint64
+	// RenderTime is how long the frame took to compute. The UI uses it to
+	// keep the animation inside the CPU budget.
+	RenderTime time.Duration
 }
 
 const (
-	// DefaultFramePeriod is the target frame time at full speed. It is close
-	// to the 13 ms of the original renderer but leaves the CPU room for the
-	// audio thread.
-	DefaultFramePeriod = 50 * time.Millisecond
+	// DefaultFramePeriod is the target frame time at full speed. The rings
+	// move slowly and are soft, so twelve frames per second look smooth; the
+	// saved frames are what keeps the visualizer inside the CPU budget.
+	DefaultFramePeriod = 80 * time.Millisecond
 
 	// idleFramePeriod is used while the playback is paused: the rings keep
 	// moving slowly, the CPU cost drops.
-	idleFramePeriod = 160 * time.Millisecond
+	idleFramePeriod = 200 * time.Millisecond
+
+	// backgroundFramePeriod is the frame time of the background layer. It is
+	// dim and slow, and every frame is a full screen of escape sequences, so
+	// it gets fewer frames than the panel.
+	backgroundFramePeriod = 100 * time.Millisecond
+
+	// minFramePeriod and maxFramePeriod bound the adaptive frame time. The
+	// controller slows the animation down before it lets the renderer eat
+	// the CPU budget.
+	minFramePeriod = 80 * time.Millisecond
+	maxFramePeriod = 250 * time.Millisecond
+
+	// renderBudget is the share of one core the renderer may use. One percent
+	// of a four thread system is four percent of a core; the renderer gets a
+	// third of it and leaves the rest to the interface and the terminal.
+	renderBudget = 0.015
 )
 
 // Renderer owns the worker goroutine and the latest frame.
@@ -61,6 +97,8 @@ type Renderer struct {
 	palette Palette
 	glow    float64
 	enabled bool
+	mode    Mode
+	detail  int
 
 	amplitude uint32 // math.Float32bits
 	playing   uint32
@@ -80,7 +118,8 @@ type Renderer struct {
 // New creates a stopped renderer. Call SetEnabled(true) to start it.
 func New() *Renderer {
 	return &Renderer{
-		now: time.Now,
+		mode: ModePanel,
+		now:  time.Now,
 		palette: Palette{
 			Bg: RGB{13, 13, 13},
 			Colors: [6]RGB{
@@ -89,6 +128,31 @@ func New() *Renderer {
 			},
 		},
 	}
+}
+
+// SetMode selects the frame kind. It is applied by the next frame.
+func (r *Renderer) SetMode(mode Mode) {
+	r.mu.Lock()
+	r.mode = mode
+	r.mu.Unlock()
+}
+
+// SetDetail selects how many cells share one noise evaluation. It is applied
+// by the next frame.
+func (r *Renderer) SetDetail(detail int) {
+	if detail < 1 {
+		detail = 1
+	}
+	r.mu.Lock()
+	r.detail = detail
+	r.mu.Unlock()
+}
+
+// Mode reports the selected frame kind.
+func (r *Renderer) Mode() Mode {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.mode
 }
 
 // SetEnabled starts or stops the worker. Disabling releases the goroutine and
@@ -215,7 +279,9 @@ func (r *Renderer) Latest() (Frame, bool) {
 	r.frameMu.RLock()
 	frame := r.frame
 	r.frameMu.RUnlock()
-	return frame, frame.Text != ""
+	// The background mode has no text, so readiness is the generation, not
+	// the presence of the half block frame.
+	return frame, frame.Generation > 0
 }
 
 func (r *Renderer) work(stop <-chan struct{}, done chan<- struct{}) {
@@ -244,14 +310,21 @@ func (r *Renderer) work(stop <-chan struct{}, done chan<- struct{}) {
 	}
 
 	last := r.now()
-	ticker := time.NewTicker(DefaultFramePeriod)
-	defer ticker.Stop()
+	period := DefaultFramePeriod
+	timer := time.NewTimer(period)
+	defer timer.Stop()
+
+	var (
+		buf    = newBuffer()
+		layout *layout
+		frame  scene
+	)
 
 	for {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 
 		now := r.now()
@@ -260,7 +333,9 @@ func (r *Renderer) work(stop <-chan struct{}, done chan<- struct{}) {
 		if dt <= 0 {
 			continue
 		}
-		if dt > 0.1 {
+		if dt > 0.25 {
+			// a long pause (a suspended laptop, a stalled scheduler) must not
+			// jump the animation forward
 			dt = 0.1
 		}
 
@@ -268,6 +343,8 @@ func (r *Renderer) work(stop <-chan struct{}, done chan<- struct{}) {
 		width, height := r.width, r.height
 		target := r.palette
 		glow := r.glow
+		mode := r.mode
+		detail := r.detail
 		r.mu.Unlock()
 
 		playing := atomic.LoadUint32(&r.playing) != 0
@@ -315,25 +392,62 @@ func (r *Renderer) work(stop <-chan struct{}, done chan<- struct{}) {
 		state.bg[2] += (float64(target.Bg.B)/255 - state.bg[2]) * lerp
 
 		state.phase += dt * state.speed
-		if width <= 0 || height <= 0 {
+
+		if width <= 0 || height <= 0 || mode == ModeOff {
+			period = maxFramePeriod
+			timer.Reset(period)
 			continue
 		}
 
-		text := renderFrame(width, height, state)
+		if layout == nil || layout.width != width || layout.height != height || layout.detail != detail {
+			if detail < 1 {
+				detail = 1
+			}
+			layout = newLayout(width, height, detail)
+			buf.prepare(layout)
+		}
+
+		frame.phase = state.phase
+		frame.amplitude = state.amplitude
+		frame.glow = state.glow
+		frame.palette = state.palette
+		frame.bg = state.bg
+		frame.prepare()
+
+		started := r.now()
+		cells, text := buf.render(&frame, mode == ModePanel)
+		elapsed := r.now().Sub(started)
+
+		// Copy the cell colours: the buffer is reused by the next frame.
+		cellCopy := make([]RGB, len(cells))
+		copy(cellCopy, cells)
 
 		r.frameMu.Lock()
 		r.frame.Generation++
 		r.frame.Text = text
+		r.frame.Cells = cellCopy
+		r.frame.Width = width
+		r.frame.Height = height
+		r.frame.RenderTime = elapsed
 		r.frameMu.Unlock()
 
-		// paused playback does not need 20 frames per second
-		if !playing {
-			select {
-			case <-stop:
-				return
-			case <-time.After(idleFramePeriod - DefaultFramePeriod):
-			}
+		// The controller: slow the animation down instead of letting the
+		// renderer take more than its share of a core.
+		wanted := time.Duration(float64(elapsed) / renderBudget)
+		if wanted < minFramePeriod {
+			wanted = minFramePeriod
 		}
+		if wanted > maxFramePeriod {
+			wanted = maxFramePeriod
+		}
+		if !playing && wanted < idleFramePeriod {
+			wanted = idleFramePeriod
+		}
+		if mode == ModeBackground && wanted < backgroundFramePeriod {
+			wanted = backgroundFramePeriod
+		}
+		period = wanted
+		timer.Reset(period)
 	}
 }
 

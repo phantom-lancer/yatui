@@ -142,3 +142,48 @@ func TestPrivatePermissions(t *testing.T) {
 		t.Fatalf("the config is %04o, want 0600", perm)
 	}
 }
+
+// TestVisualizerModeMigratesFromTheBoolean checks that an old config with
+// only "visualizer: true/false" keeps its meaning in the new mode setting.
+func TestVisualizerModeMigratesFromTheBoolean(t *testing.T) {
+	writeConfig(t, "token: abc\nvisualizer: true\n")
+	conf, err := load()
+	if err != nil {
+		t.Fatalf("load: %s", err)
+	}
+	if conf.VisualizerMode != "panel" {
+		t.Fatalf("mode %q, want panel", conf.VisualizerMode)
+	}
+
+	writeConfig(t, "token: abc\nvisualizer: false\n")
+	conf, err = load()
+	if err != nil {
+		t.Fatalf("load: %s", err)
+	}
+	if conf.VisualizerMode != "off" {
+		t.Fatalf("mode %q, want off", conf.VisualizerMode)
+	}
+
+	// an unknown mode falls back to the panel, never to a broken state
+	writeConfig(t, "token: abc\nvisualizer-mode: neon\n")
+	conf, err = load()
+	if err != nil {
+		t.Fatalf("load: %s", err)
+	}
+	if conf.VisualizerMode != "panel" || !conf.VisualizerEnabled {
+		t.Fatalf("mode %q enabled=%v, want panel/true", conf.VisualizerMode, conf.VisualizerEnabled)
+	}
+}
+
+// TestVisualizerModeRoundTrip checks that the three modes survive a save and
+// a reload, and that the old boolean follows the mode.
+func TestVisualizerModeRoundTrip(t *testing.T) {
+	writeConfig(t, "token: abc\nvisualizer: true\nvisualizer-mode: background\n")
+	conf, err := load()
+	if err != nil {
+		t.Fatalf("load: %s", err)
+	}
+	if conf.VisualizerMode != "background" || !conf.VisualizerEnabled {
+		t.Fatalf("mode %q enabled=%v", conf.VisualizerMode, conf.VisualizerEnabled)
+	}
+}

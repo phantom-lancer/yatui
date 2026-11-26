@@ -61,6 +61,12 @@ func (m *Model) frameDecision(message tea.Msg) (immediate bool, schedule bool) {
 	if _, ok := message.(idleRenderMsg); ok {
 		return false, false
 	}
+	// The visualizer tick repaints through its own fast path and never
+	// invalidates the cached screen: a tick without a new frame must not
+	// lay out the interface again.
+	if _, ok := message.(vizTickMsg); ok {
+		return false, false
+	}
 	if !m.idleScreen() {
 		return true, false
 	}
@@ -73,6 +79,12 @@ func (m *Model) frameDecision(message tea.Msg) (immediate bool, schedule bool) {
 			return true, false
 		}
 	case tracker.ProgressControl:
+		// While the visualizer animates, its frames repaint the progress bar
+		// within a frame or two: a separate repaint would lay out the whole
+		// interface for a number that is about to be drawn anyway.
+		if m.visualizerAnimating() {
+			return false, false
+		}
 		// Progress samples are drawn at the same bounded idle cadence.
 	default:
 		// keys, dialogs, notifications and the like react at once

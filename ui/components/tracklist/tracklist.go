@@ -73,6 +73,9 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 	m.list.Paginator.KeyMap.NextPage.SetEnabled(false)
 	m.list.Paginator.KeyMap.PrevPage.SetEnabled(false)
 	m.list.SetShowHelp(false)
+	// the count is already shown next to the title; the widget's own status
+	// bar would add an English "1 item" line above the tracks
+	m.list.SetShowStatusBar(false)
 
 	m.help.Ellipsis = "…"
 	m.help.Styles.FullDesc = m.help.Styles.FullDesc.PaddingRight(1)

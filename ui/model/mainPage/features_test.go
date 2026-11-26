@@ -76,12 +76,33 @@ func TestToggleVisualizerReleasesTheWorker(t *testing.T) {
 		t.Fatal("the worker did not start")
 	}
 
-	m.toggleVisualizer()
-	if config.Current.VisualizerEnabled {
+	m.setVisualizerMode("off")
+	if config.Current.VisualizerEnabled || config.Current.VisualizerMode != "off" {
 		t.Fatal("the setting did not change")
 	}
 	if m.visualizer.Enabled() {
 		t.Fatal("the worker is still running after disabling")
+	}
+}
+
+func TestVisualizerModeCyclesOffPanelBackground(t *testing.T) {
+	withConfig(t, func() {
+		config.Current.VisualizerMode = "panel"
+		config.Current.VisualizerEnabled = true
+		config.Current.ResourceSaver = false
+	})
+
+	m := &Model{width: 120, height: 40}
+	seen := []string{config.Current.VisualizerMode}
+	for i := 0; i < 3; i++ {
+		m.cycleVisualizer()
+		seen = append(seen, config.Current.VisualizerMode)
+	}
+	want := []string{"panel", "background", "off", "panel"}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("cycle %v, want %v", seen, want)
+		}
 	}
 }
 
@@ -175,10 +196,10 @@ func TestSettingsHaveTheNewRows(t *testing.T) {
 
 	items := m.buildSettings()
 	wanted := map[string]bool{
-		"Визуализатор «Моей волны»":    false,
-		"Экономия ресурсов":            false,
-		"Классический вид эквалайзера": false,
-		"Офлайн-режим":                 false,
+		"Визуализатор «Моей волны» (выкл / панель / фон)": false,
+		"Экономия ресурсов":                               false,
+		"Классический вид эквалайзера":                    false,
+		"Офлайн-режим":                                    false,
 	}
 	for _, item := range items {
 		if _, ok := wanted[item.label]; ok {

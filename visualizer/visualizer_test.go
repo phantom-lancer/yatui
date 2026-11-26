@@ -128,3 +128,57 @@ func TestRingsAreVisibleAboveTheBackdrop(t *testing.T) {
 		t.Fatal("every cell is lit: the rings have no shape")
 	}
 }
+
+func BenchmarkRenderPanel(b *testing.B) {
+	benchRender(b, 50, 5, 2, ModePanel)
+}
+
+func BenchmarkRenderPanelWide(b *testing.B) {
+	benchRender(b, 100, 8, 2, ModePanel)
+}
+
+func BenchmarkRenderBackground(b *testing.B) {
+	benchRender(b, 84, 27, 3, ModeBackground)
+}
+
+func BenchmarkRenderBackgroundDetail2(b *testing.B) {
+	benchRender(b, 84, 27, 2, ModeBackground)
+}
+
+func benchRender(b *testing.B, w, h, detail int, mode Mode) {
+	l := newLayout(w, h, detail)
+	buf := newBuffer()
+	buf.prepare(l)
+
+	state := animState{speed: 0.8, amplitude: 0.6}
+	for i := range state.palette {
+		state.palette[i] = [3]float64{0.9, 0.4, 0.2}
+	}
+	var sc scene
+	sc.phase = 3.2
+	sc.amplitude = 0.6
+	sc.palette = state.palette
+	sc.bg = [3]float64{0.05, 0.05, 0.05}
+	sc.prepare()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sc.phase += 0.02
+		sc.prepare()
+		buf.render(&sc, mode == ModePanel)
+	}
+}
+
+func BenchmarkPrepareOnly(b *testing.B) {
+	var sc scene
+	sc.phase = 3.2
+	for i := range sc.palette {
+		sc.palette[i] = [3]float64{0.9, 0.4, 0.2}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sc.phase += 0.02
+		sc.prepare()
+	}
+}

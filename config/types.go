@@ -240,8 +240,11 @@ type Config struct {
 	WinterSpeed      int  `yaml:"winter-speed"`
 	WinterDensity    int  `yaml:"winter-density"`
 	PreloadNextTrack bool `yaml:"preload-next-track"`
-	// VisualizerEnabled shows the audio reactive My Wave visualizer.
+	// VisualizerEnabled shows the audio reactive My Wave visualizer. It is
+	// kept for older versions; VisualizerMode is the real setting.
 	VisualizerEnabled bool `yaml:"visualizer"`
+	// VisualizerMode selects the visualizer: "off", "panel" or "background".
+	VisualizerMode string `yaml:"visualizer-mode"`
 	// ResourceSaver drops the optional visual work: the visualizer, the
 	// animated themes and the high frequency idle repaints.
 	ResourceSaver bool `yaml:"resource-saver"`
@@ -267,6 +270,7 @@ var defaultConfig = Config{
 	WinterDensity:     40,
 	PreloadNextTrack:  true,
 	VisualizerEnabled: true,
+	VisualizerMode:    "panel",
 	Search: &Search{
 		Artists:   true,
 		Popular:   false,

@@ -126,6 +126,14 @@ func load() (Config, error) {
 		if _, ok := configFields["visualizer"]; !ok {
 			newConfig.VisualizerEnabled = defaultConfig.VisualizerEnabled
 		}
+		if _, ok := configFields["visualizer-mode"]; !ok {
+			// an older config only has the boolean: keep its meaning
+			if newConfig.VisualizerEnabled {
+				newConfig.VisualizerMode = "panel"
+			} else {
+				newConfig.VisualizerMode = "off"
+			}
+		}
 		if _, ok := configFields["winter-density"]; !ok {
 			// Preserve the old 0..3 snow intensity when migrating an existing config.
 			switch newConfig.WinterIntensity {
@@ -269,6 +277,13 @@ func load() (Config, error) {
 			}
 		}
 	}
+
+	switch newConfig.VisualizerMode {
+	case "off", "panel", "background":
+	default:
+		newConfig.VisualizerMode = "panel"
+	}
+	newConfig.VisualizerEnabled = newConfig.VisualizerMode != "off"
 
 	return newConfig, nil
 }

@@ -210,6 +210,17 @@ type Model struct {
 	vizContentW, vizContentH int
 	vizTicking               bool
 	vizGeneration            uint64
+	// vizDirty marks a new frame that has not been drawn yet.
+	vizDirty bool
+	// vizNoop marks a visualizer tick that produced no new frame: the screen
+	// is reused instead of being rebuilt.
+	vizNoop bool
+	// vizLayout caches the parts of the main screen that the animation does
+	// not change.
+	vizLayout vizLayoutCache
+	// pendingCache is the main screen that View has to store in the cache
+	// after painting the version label.
+	pendingCache *layoutCacheRequest
 
 	// offlineDownloadGen cancels a playlist download when a new one starts.
 	offlineDownloadGen int64
@@ -283,6 +294,13 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
+
+	// Every message except the visualizer tick may change the screen; the
+	// cached layout is dropped before the message is applied.
+	if _, isViz := message.(vizTickMsg); !isViz {
+		m.invalidateLayout()
+		m.vizNoop = false
+	}
 
 	// idle screens draw once the input settles instead of per event
 	immediate, schedule := m.frameDecision(message)
@@ -883,6 +901,24 @@ func (m *Model) View() string {
 		return m.idleFrame
 	}
 
+	// A tick without a new frame: keep the screen that is already drawn.
+	if m.vizNoop && m.idleFrameValid {
+		return m.idleFrame
+	}
+
+	// The animation is the only thing that changed: rebuild the screen from
+	// the cached lines instead of laying out the whole interface again.
+	if m.vizDirty && len(m.toasts) == 0 && !winterMotionEnabled() {
+		m.vizDirty = false
+		if view, ok := m.composeVizOnly(); ok {
+			m.idleFrame = view
+			m.idleFrameValid = true
+			m.progressDrawn = time.Now()
+			return view
+		}
+	}
+
+	m.pendingCache = nil
 	var view string
 	if m.contextMenu != nil {
 		view = m.contextMenu.render(m.viewBody())
@@ -890,6 +926,12 @@ func (m *Model) View() string {
 		view = m.viewBody()
 	}
 	view = drawVersion(view)
+	if req := m.pendingCache; req != nil {
+		// the version label is part of the cached screen: the fast path
+		// never has to repaint it
+		m.cacheLayout(view, req)
+		m.pendingCache = nil
+	}
 	baseView := view
 	view = drawWinterOverlayWithParticles(view, m.winterFrame, m.winterParticles)
 	view = m.drawToastsAt(view, baseView)
@@ -962,23 +1004,23 @@ func (m *Model) viewBody() string {
 	trackerView := m.tracker.View()
 	trackerHeight := lipgloss.Height(trackerView)
 
+	// The panel mode takes its own block; the background mode paints behind
+	// the existing layout and must not move anything.
+	mode := visualizerMode()
 	var vizView string
 	vizHeight := 0
+	vizW, vizH := 0, 0
 	if m.visualizerVisible() {
-		width := lipgloss.Width(trackerView) - 2
-		if width < vizMinWidth {
-			width = vizMinWidth
+		switch mode {
+		case visualizer.ModePanel:
+			vizW, vizH = m.vizContentSize()
+			m.vizContentW, m.vizContentH = vizW, vizH
+			vizView = m.visualizerPanel(vizW, vizH)
+			vizHeight = lipgloss.Height(vizView)
+		case visualizer.ModeBackground:
+			m.vizContentW, m.vizContentH = m.width, m.height
+			vizW, vizH = m.width, m.height
 		}
-		height := m.height / 5
-		if height < vizMinHeight {
-			height = vizMinHeight
-		}
-		if height > vizMaxHeight {
-			height = vizMaxHeight
-		}
-		m.vizContentW, m.vizContentH = width, height
-		vizView = m.visualizerPanel(width, height)
-		vizHeight = lipgloss.Height(vizView)
 	} else {
 		m.vizContentW, m.vizContentH = 0, 0
 	}
@@ -1001,7 +1043,22 @@ func (m *Model) viewBody() string {
 
 	m.updateMouseLayout(playlistView, tracklistView, trackerView, midPanel)
 
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, playlistView, midPanel)
+	base := lipgloss.JoinHorizontal(lipgloss.Bottom, playlistView, midPanel)
+	req := &layoutCacheRequest{mode: mode, vizW: vizW, vizH: vizH}
+	if mode == visualizer.ModePanel && vizW > 0 {
+		// The panel sits between the track list and the player; the joined
+		// screen is bottom aligned, so its row follows from the heights.
+		baseHeight := lipgloss.Height(base)
+		midHeight := lipgloss.Height(midPanel)
+		offset := 0
+		if !m.tracklist.Hidden {
+			offset = lipgloss.Height(tracklistView)
+		}
+		req.vizTop = baseHeight - midHeight + offset
+		req.vizCell = lipgloss.Width(playlistView)
+	}
+	m.pendingCache = req
+	return base
 }
 
 //
