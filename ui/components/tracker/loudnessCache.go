@@ -121,7 +121,7 @@ func saveLoudnessCache() {
 
 	path := filepath.Join(dir, _LOUDNESS_CACHE_FILE)
 	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, data, 0644); err != nil {
+	if err := os.WriteFile(temporary, data, 0600); err != nil {
 		log.Print(log.LVL_WARNIGN, "normalization: unable to update the loudness cache: %s", err)
 		return
 	}

@@ -75,7 +75,7 @@ func New(p *tea.Program, title string) *Model {
 	m.list = list.New([]list.Item{}, ItemDelegate{programm: p, layout: &m.layout, hovered: &m.hovered}, 512, 512)
 	m.list.Title = title
 	m.list.SetShowStatusBar(false)
-	m.list.Styles.Title = m.list.Styles.Title.Foreground(style.AccentColor).UnsetBackground().Padding(0)
+	m.list.Styles.Title = style.SidebarTitleStyle
 	m.list.KeyMap = list.KeyMap{
 		CursorUp:   key.NewBinding(controls.PlaylistsUp.Binding(), controls.PlaylistsUp.Help("вверх")),
 		CursorDown: key.NewBinding(controls.PlaylistsDown.Binding(), controls.PlaylistsDown.Help("вниз")),
@@ -87,7 +87,7 @@ func New(p *tea.Program, title string) *Model {
 
 // RefreshStyle re-applies the colors after a theme switch.
 func (m *Model) RefreshStyle() {
-	m.list.Styles.Title = m.list.Styles.Title.Foreground(style.AccentColor).UnsetBackground().Padding(0)
+	m.list.Styles.Title = style.SidebarTitleStyle
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -100,7 +100,8 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	m.helpMap.Renamable = m.SelectedItem().Kind >= USER
+	selected := m.SelectedItem()
+	m.helpMap.Renamable = selected != nil && selected.Kind >= USER
 
 	// the footer is dropped when there is no room for it: the sidebar must
 	// keep its height, or the layout of the whole screen would break
@@ -119,6 +120,18 @@ func (m *Model) View() string {
 
 	m.resetLayout()
 	listView := m.list.View()
+	if len(m.list.Items()) == 0 {
+		// the list widget says "No items" in English and without a hint;
+		// the empty sidebar explains what to do instead
+		listView = lipgloss.JoinVertical(
+			lipgloss.Left,
+			style.SidebarTitleStyle.Render(m.list.Title),
+			"",
+			style.MutedStyle.PaddingLeft(2).Render("Пока пусто"),
+			style.MutedStyle.PaddingLeft(2).Render(config.Current.Controls.WaveSettings.Display()+" — Моя волна"),
+			style.MutedStyle.PaddingLeft(2).Render(config.Current.Controls.Settings.Display()+" — настройки"),
+		)
+	}
 	m.buildLayout()
 
 	content := lipgloss.JoinVertical(lipgloss.Left, listView, "")
@@ -237,7 +250,11 @@ func (m *Model) RemoveItem(index int) {
 }
 
 func (m *Model) SelectedItem() *Item {
-	return m.list.SelectedItem().(*Item)
+	item, ok := m.list.SelectedItem().(*Item)
+	if !ok {
+		return nil
+	}
+	return item
 }
 
 func (m *Model) Index() int {

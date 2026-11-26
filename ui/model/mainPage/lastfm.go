@@ -231,7 +231,7 @@ type lastfmFlushedMsg struct {
 // flushScrobbles sends the reports that were kept while the connection was
 // down. It runs in the background and never touches the player.
 func (m *Model) flushScrobbles(client scrobbler) {
-	if m.scrobbles == nil || m.scrobbles.Len() == 0 {
+	if config.Current.Offline || m.scrobbles == nil || m.scrobbles.Len() == 0 {
 		return
 	}
 	if !atomic.CompareAndSwapInt32(&m.scrobbleFlushing, 0, 1) {
@@ -252,7 +252,9 @@ func (m *Model) flushScrobbles(client scrobbler) {
 // The timer is a plain sleeping goroutine, so an idle player schedules
 // nothing at all.
 func (m *Model) scrobbleStart(track *api.Track) {
-	if track == nil || !lastfmActive() {
+	// offline mode makes no network requests; the pending scrobbles stay in
+	// the queue and go out when the player is online again
+	if track == nil || !lastfmActive() || config.Current.Offline {
 		return
 	}
 

@@ -87,8 +87,11 @@ func TestTrimLogFile(t *testing.T) {
 
 func TestCoverFileForIgnoresMissingCover(t *testing.T) {
 	dir := t.TempDir()
+	// os.TempDir reads TMPDIR on Unix and TMP/TEMP on Windows: all three
+	// must point at the test directory, or the test sees the real temp dir.
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
+	t.Setenv("TMPDIR", dir)
 
 	m := &Model{}
 	if path := m.coverFileFor(nil); path != "" {

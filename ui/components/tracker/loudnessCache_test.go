@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/phantom-lancer/yatui/cache"
-	"github.com/phantom-lancer/yatui/config"
 )
 
 // prepareLoudnessCache points the cache to an empty directory and clears the
@@ -14,12 +13,11 @@ import (
 func prepareLoudnessCache(t *testing.T) {
 	t.Helper()
 
-	previous := config.Current.CacheDir
-	config.Current.CacheDir = t.TempDir()
+	cache.SetDir(t.TempDir())
 
 	resetLoudnessCache()
 	t.Cleanup(func() {
-		config.Current.CacheDir = previous
+		cache.SetDir("")
 		resetLoudnessCache()
 	})
 }

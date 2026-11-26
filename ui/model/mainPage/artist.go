@@ -8,16 +8,23 @@ import (
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
 )
 
-// showArtist adds the popular tracks of the track artist to the sidebar.
-//
-// It intentionally loads only the popular tracks: walking through all
-// the artist albums requires one request per album, which takes minutes
-// for the artists with a big discography.
+// artistTracksMsg carries the popular tracks of an artist back to the UI
+// loop. The request runs in the background; the sidebar and the player are
+// only touched on the UI goroutine.
+type artistTracksMsg struct {
+	name   string
+	tracks []api.Track
+	err    error
+}
+
+// showArtist opens the popular tracks of the first artist of the track. It is
+// used for the artists with a big discography.
 func (m *Model) showArtist(track *api.Track) tea.Cmd {
 	if track == nil || len(track.Artists) == 0 || track.Artists[0].Id == 0 {
 		return nil
 	}
-	if m.client == nil {
+	client := m.client
+	if client == nil {
 		return nil
 	}
 
@@ -27,38 +34,44 @@ func (m *Model) showArtist(track *api.Track) tea.Cmd {
 	go func() {
 		defer m.Send(LOADING_DONE)
 
-		popular, err := m.client.ArtistPopularTracks(uint64(artist.Id))
+		popular, err := client.ArtistPopularTracks(uint64(artist.Id))
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to obtain artist [%s] tracks: %s", artist.Name, err)
-			m.tracker.ShowError("artist tracks")
+			m.Send(artistTracksMsg{name: artist.Name, err: err})
 			return
 		}
 
 		ids := make([]string, len(popular.Tracks))
 		copy(ids, popular.Tracks)
 
-		tracks, err := m.client.Tracks(ids)
+		tracks, err := client.Tracks(ids)
 		if err != nil {
 			log.Print(log.LVL_ERROR, "failed to obtain artist [%s] tracks info: %s", artist.Name, err)
-			m.tracker.ShowError("artist tracks info")
+			m.Send(artistTracksMsg{name: artist.Name, err: err})
 			return
 		}
 
-		if len(tracks) == 0 {
-			m.tracker.ShowError("artist tracks")
-			return
-		}
-
-		m.insertSidebarItem(&playlist.Item{
-			Name:    artist.Name + " popular",
-			Active:  true,
-			Subitem: true,
-			Label:   "артист",
-			Tracks:  tracks,
-		})
+		m.Send(artistTracksMsg{name: artist.Name, tracks: tracks})
 	}()
 
 	return m.spinner.Tick
+}
+
+// applyArtistTracks adds the loaded artist list to the sidebar.
+func (m *Model) applyArtistTracks(msg artistTracksMsg) tea.Cmd {
+	if msg.err != nil || len(msg.tracks) == 0 {
+		m.tracker.ShowError("artist tracks")
+		return nil
+	}
+
+	m.insertSidebarItem(&playlist.Item{
+		Name:    msg.name + " popular",
+		Active:  true,
+		Subitem: true,
+		Label:   "артист",
+		Tracks:  msg.tracks,
+	})
+	return nil
 }
 
 // insertSidebarItem appends an item to the end of the playlists sidebar.

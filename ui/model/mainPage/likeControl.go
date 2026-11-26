@@ -252,6 +252,11 @@ func (m *Model) applyTrackLikeResult(result trackLikeResultMsg) tea.Cmd {
 	}
 	applyLikedState(m.likedTracksMap, result.track.Id, result.liked, nil)
 
+	// a like lights the rings of the visualizer up for a moment
+	if result.liked && m.visualizer != nil {
+		m.visualizer.TriggerGlow()
+	}
+
 	var cmds []tea.Cmd
 	if m.playlists != nil {
 		likedPlaylist, index := m.playlists.GetFirst(playlist.LIKES)

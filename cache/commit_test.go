@@ -4,15 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/phantom-lancer/yatui/config"
 )
 
 // TestCommitPublishesFile checks the atomic cache write: a track is invisible
 // until Commit, and a discarded file leaves nothing behind.
 func TestCommitPublishesFile(t *testing.T) {
 	dir := t.TempDir()
-	config.Current.CacheDir = dir
+	SetDir(dir)
+	t.Cleanup(func() { SetDir("") })
 
 	file, err := Write("12345")
 	if err != nil {

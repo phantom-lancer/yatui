@@ -93,6 +93,10 @@ func (r *asyncPCMReader) prefetch() {
 		}
 
 		if request := r.takePendingSeek(); request != nil {
+			// The wake that announced this seek is consumed here. Left in the
+			// channel it could fire later, when the fresh PCM is published,
+			// and drop a chunk that belongs to the new generation.
+			r.drainSeekWake()
 			_, err := r.source.Seek(request.position, io.SeekStart)
 			if request.generation == r.generation.Load() {
 				if err != nil {
@@ -127,6 +131,15 @@ func (r *asyncPCMReader) prefetch() {
 			select {
 			case r.blocks <- chunk:
 			case <-r.seekWake:
+				if gen == r.generation.Load() {
+					// A stale wake must not lose the audio of the current
+					// generation; publish it instead.
+					select {
+					case r.blocks <- chunk:
+					case <-r.stop:
+						return
+					}
+				}
 				continue
 			case <-r.stop:
 				return
@@ -163,6 +176,15 @@ func (r *asyncPCMReader) prefetch() {
 
 func sourceProgressFor(source pcmSource) float64 {
 	return source.SourceProgress()
+}
+
+// drainSeekWake removes a queued wake of a seek that is already being
+// processed, so it cannot be mistaken for a newer one.
+func (r *asyncPCMReader) drainSeekWake() {
+	select {
+	case <-r.seekWake:
+	default:
+	}
 }
 
 func (r *asyncPCMReader) takePendingSeek() *pcmSeekRequest {

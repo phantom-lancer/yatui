@@ -15,6 +15,7 @@ import (
 	"github.com/bogem/id3v2/v2"
 	"github.com/phantom-lancer/yatui/api"
 	"github.com/phantom-lancer/yatui/cache"
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/log"
 	"github.com/phantom-lancer/yatui/stream"
 	"github.com/phantom-lancer/yatui/ui/components/playlist"
@@ -59,7 +60,7 @@ func (m *Model) rotateTracks(pl *playlist.Item) {
 	suggestedTracks, err := m.client.RotorSessionTracks(pl.SessionId, []*api.RotorFeedback{}, pl.Tracks)
 	if err != nil {
 		log.Print(log.LVL_ERROR, "failed to obtain more rotor tracks: %s", err)
-		m.tracker.ShowError("next track obtain failure")
+		m.reportError("next track obtain failure")
 		return
 	}
 	if len(suggestedTracks.Sequence) == 0 {
@@ -276,11 +277,17 @@ func (m *Model) playTrack(track *api.Track) {
 	m.loadingTrackId = track.Id
 	m.tracker.LoadTrack(track)
 
-	go m.loadTrack(m.playGeneration, track)
+	// The client and the normalization settings are read on the UI thread and
+	// passed to the worker: switching the offline mode or a setting while the
+	// track loads must not race with the request.
+	client := m.client
+	fast := m.tracker.FastNormalization()
+	normalization := m.tracker.Normalization()
+	go m.loadTrack(m.playGeneration, track, client, fast, normalization)
 }
 
 // loadTrack downloads everything the track needs and hands it to the UI loop.
-func (m *Model) loadTrack(generation int64, track *api.Track) {
+func (m *Model) loadTrack(generation int64, track *api.Track, client *api.YaMusicClient, fastNormalization, normalization bool) {
 	var (
 		wg sync.WaitGroup
 
@@ -300,17 +307,20 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 	go func() {
 		defer wg.Done()
 		coverPath := m.coverFilePath(track)
-		coverFile, ferr := os.OpenFile(coverPath, os.O_CREATE|os.O_RDWR, 0755)
+		coverFile, ferr := os.OpenFile(coverPath, os.O_CREATE|os.O_RDWR, 0600)
 		if ferr != nil {
 			log.Print(log.LVL_WARNIGN, "unable to open cover file [%s]: %s", coverPath, ferr)
 			return
 		}
 		defer coverFile.Close()
+		_ = coverFile.Chmod(0600)
 		stat, serr := coverFile.Stat()
 		// a cover file is reused while it is fresh, so the playlist covers
 		// of the past are not downloaded again and again
 		fresh := serr == nil && stat.Size() > 0 && time.Since(stat.ModTime()) < coverMaxAge
-		if !fresh {
+		// the offline mode never requests a cover: the track plays without
+		// one, and the cached cover file is reused if it is still there
+		if !fresh && !config.Current.Offline {
 			coverFile.Truncate(0)
 			coverFile.Seek(0, io.SeekStart)
 			cType, derr := api.DownloadTrackCover(coverFile, track, 200)
@@ -328,14 +338,14 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 		}
 	}()
 
-	if track.LyricsInfo.HasAvailableSyncLyrics && m.client != nil {
+	if track.LyricsInfo.HasAvailableSyncLyrics && client != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lyr, lerr := m.client.TrackLyricsRequest(track.Id)
+			lyr, lerr := client.TrackLyricsRequest(track.Id)
 			if lerr != nil {
 				log.Print(log.LVL_WARNIGN, "failed to obtain track [%s] lyrics: %s", track.Id, lerr)
-				m.tracker.ShowError("track lyrics")
+				m.reportError("track lyrics")
 				return
 			}
 			lyrics = lyr
@@ -354,13 +364,13 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 				trackFromCache = true
 				return
 			}
-			if m.client == nil {
+			if client == nil {
 				downloadErr = errors.New("no yandex client")
 				return
 			}
 			var lastErr error
 			for i := 0; i < _TRACK_DOWNLOAD_TRIES; i++ {
-				trackInfos, ierr := m.client.TrackDownloadInfo(track.Id)
+				trackInfos, ierr := client.TrackDownloadInfo(track.Id)
 				if ierr != nil {
 					log.Print(log.LVL_ERROR, "failed to obtain track [%s] info: %s", track.Id, ierr)
 					lastErr = ierr
@@ -374,7 +384,7 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 						bestTrackInfo = ti
 					}
 				}
-				tr2, ts2, derr := m.client.DownloadTrack(bestTrackInfo)
+				tr2, ts2, derr := client.DownloadTrack(bestTrackInfo)
 				if derr != nil {
 					log.Print(log.LVL_ERROR, "failed to download track [%s]: %s", track.Id, derr)
 					lastErr = derr
@@ -409,7 +419,7 @@ func (m *Model) loadTrack(generation int64, track *api.Track) {
 	// the loudness is measured here, in the background, instead of on the
 	// audio thread: it decodes ten seconds of audio and used to freeze the
 	// window on every track switch
-	tracker.MeasureTrack(trackBuffer, track)
+	tracker.MeasureTrack(trackBuffer, track, fastNormalization, normalization)
 	m.Send(trackReadyMsg{
 		generation: generation,
 		track:      track,
@@ -457,12 +467,13 @@ func buildTrackTag(track *api.Track, coverType string, coverBytes []byte) *id3v2
 // media integrations read. A failure is not fatal: the track plays without a
 // cover and without scrobbling metadata.
 func (m *Model) writeTrackMetadata(track *api.Track, trackBuffer *stream.BufferedStream, fromCache bool, coverType string, coverBytes []byte) {
-	metadataFile, err := os.OpenFile(m.metadataFilePath(), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	metadataFile, err := os.OpenFile(m.metadataFilePath(), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		log.Print(log.LVL_WARNIGN, "failed to create metadata file: %s", err)
 		return
 	}
 	defer metadataFile.Close()
+	_ = metadataFile.Chmod(0600)
 
 	tag := id3v2.NewEmptyTag()
 	if fromCache {
@@ -491,7 +502,7 @@ func (m *Model) applyLoadedTrack(msg trackReadyMsg) {
 		// the title was already switched to the new track: drop the loading
 		// mark so it does not stay "downloading" forever
 		m.tracker.Stop()
-		m.tracker.ShowError("track download")
+		m.reportError("track download")
 		return
 	}
 

@@ -1,6 +1,10 @@
 package config
 
-import "gopkg.in/yaml.v3"
+import (
+	"gopkg.in/yaml.v3"
+
+	"github.com/phantom-lancer/yatui/equalizer"
+)
 
 type CacheType uint
 
@@ -150,17 +154,23 @@ type Wave struct {
 	Summary string `yaml:"summary"`
 }
 
-// Equalizer holds the settings of the graphic equalizer: the gains of the
-// bands and the name of the preset they were taken from.
+// Equalizer holds the settings of the equalizer. Two independent sets of
+// bands are kept: the original ten band set used by the classic view and the
+// fifteen band set used by the graphic view. Switching the view never
+// destroys the values of the other one.
 type Equalizer struct {
 	// Enabled turns the equalizer on.
 	Enabled bool `yaml:"enabled"`
-	// Preset is the name of the preset the gains were taken from.
+	// Preset is the name of the preset of the classic ten band view.
 	Preset string `yaml:"preset"`
-	// Gains are the corrections of the bands, in decibels. The order is
-	// the order of the bands of the equalizer: from the lowest to the
-	// highest one.
+	// Gains are the corrections of the classic bands, in decibels.
 	Gains []float64 `yaml:"gains"`
+	// ClassicView selects the original ten band interface and engine.
+	ClassicView bool `yaml:"classic-view"`
+	// GraphicPreset is the name of the preset of the fifteen band view.
+	GraphicPreset string `yaml:"graphic-preset,omitempty"`
+	// GraphicGains are the corrections of the fifteen bands, in decibels.
+	GraphicGains []float64 `yaml:"graphic-gains,omitempty"`
 }
 
 // LastFM holds the Last.fm credentials. The api key and secret are created by
@@ -230,24 +240,37 @@ type Config struct {
 	WinterSpeed      int  `yaml:"winter-speed"`
 	WinterDensity    int  `yaml:"winter-density"`
 	PreloadNextTrack bool `yaml:"preload-next-track"`
+	// VisualizerEnabled shows the audio reactive My Wave visualizer. It is
+	// kept for older versions; VisualizerMode is the real setting.
+	VisualizerEnabled bool `yaml:"visualizer"`
+	// VisualizerMode selects the visualizer: "off", "panel" or "background".
+	VisualizerMode string `yaml:"visualizer-mode"`
+	// ResourceSaver drops the optional visual work: the visualizer, the
+	// animated themes and the high frequency idle repaints.
+	ResourceSaver bool `yaml:"resource-saver"`
+	// Offline starts and runs without the Yandex API: only tracks in the
+	// local cache are listed and played.
+	Offline bool `yaml:"offline"`
 }
 
 var defaultConfig = Config{
-	BufferSize:       240,
-	RewindDuration:   5,
-	Volume:           0.5,
-	VolumeStep:       0.05,
-	ShowLyrics:       false,
-	CacheTracks:      CACHE_LIKED_ONLY,
-	CacheDir:         "",
-	SuppressErrors:   false,
-	RgbSpeed:         5,
-	RgbFrameMs:       200,
-	WinterIntensity:  2,
-	WinterGarland:    true,
-	WinterSpeed:      50,
-	WinterDensity:    40,
-	PreloadNextTrack: true,
+	BufferSize:        240,
+	RewindDuration:    5,
+	Volume:            0.5,
+	VolumeStep:        0.05,
+	ShowLyrics:        false,
+	CacheTracks:       CACHE_LIKED_ONLY,
+	CacheDir:          "",
+	SuppressErrors:    false,
+	RgbSpeed:          5,
+	RgbFrameMs:        200,
+	WinterIntensity:   2,
+	WinterGarland:     true,
+	WinterSpeed:       50,
+	WinterDensity:     40,
+	PreloadNextTrack:  true,
+	VisualizerEnabled: true,
+	VisualizerMode:    "panel",
 	Search: &Search{
 		Artists:   true,
 		Popular:   false,
@@ -274,9 +297,11 @@ var defaultConfig = Config{
 	},
 	Wave: &Wave{},
 	Equalizer: &Equalizer{
-		Enabled: false,
-		Preset:  "Плоский",
-		Gains:   []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		Enabled:       false,
+		Preset:        "Плоский",
+		Gains:         []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		GraphicPreset: "Плоский",
+		GraphicGains:  make([]float64, equalizer.GraphicBands),
 	},
 	Controls: &Controls{
 		Quit:                     NewKey("ctrl+q,ctrl+c"),

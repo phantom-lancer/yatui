@@ -10,10 +10,14 @@ import (
 // the window must not be closed before they are read.
 func TestWaveSettingsAreApplied(t *testing.T) {
 	previous := config.Current.Wave
+	// the test starts from a clean wave: a previous test may have chosen an
+	// option, and the window marks the chosen one in the config
+	config.Current.Wave = &config.Wave{}
 	t.Cleanup(func() { config.Current.Wave = previous })
 
 	// the config is written to a temporary directory
 	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	m := &Model{width: 100, height: 30}
 	m.stations = &stationsDialogModel{}

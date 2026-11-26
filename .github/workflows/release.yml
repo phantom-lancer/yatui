@@ -8,68 +8,105 @@ permissions:
   contents: write
 
 jobs:
-  create:
-    name: Create release
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            artifacts: |
+              yatui-linux-amd64
+              yatui-linux-amd64-nomedia
+          - name: windows
+            os: windows-latest
+            artifacts: |
+              yatui-windows-amd64.exe
+              yatui-windows-amd64-nomedia.exe
     steps:
       - uses: actions/checkout@v4
-      - uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
 
-  linux:
-    name: Linux
-    needs: create
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build dependencies
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libasound2-dev
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build
-        run: |
-          go build -trimpath -ldflags="-w -s" -o yatui-linux-amd64
-          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-linux-amd64-nomedia
-      - name: Upload
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" yatui-linux-amd64 yatui-linux-amd64-nomedia --clobber
 
-  windows:
-    name: Windows
-    needs: create
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
+
+      # The checks run before anything is published: a tag whose code does
+      # not pass the tests never becomes a release.
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./... -count=1
+
       - name: Build
+        shell: bash
         run: |
-          go build -trimpath -ldflags="-w -s" -o yatui-windows-amd64.exe
-          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-windows-amd64-nomedia.exe
-      - name: Upload
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$env:GITHUB_REF_NAME" yatui-windows-amd64.exe yatui-windows-amd64-nomedia.exe --clobber
+          go build -trimpath -ldflags="-w -s" -o yatui-${{ matrix.name }}-amd64
+          go build -trimpath -ldflags="-w -s" -tags=nomedia -o yatui-${{ matrix.name }}-amd64-nomedia
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            mv yatui-windows-amd64 yatui-windows-amd64.exe
+            mv yatui-windows-amd64-nomedia yatui-windows-amd64-nomedia.exe
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yatui-${{ matrix.name }}
+          path: |
+            yatui-${{ matrix.name }}-amd64*
+          if-no-files-found: error
 
   checksums:
     name: Checksums
-    needs: [linux, windows]
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" --dir dist
-      - name: Compute
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute SHA256SUMS
         run: |
           cd dist
           sha256sum yatui-linux-amd64 yatui-linux-amd64-nomedia \
             yatui-windows-amd64.exe yatui-windows-amd64-nomedia.exe > SHA256SUMS
-      - name: Upload
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [build, checksums]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Verify the checksums before publishing
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/yatui-linux-amd64
+            dist/yatui-linux-amd64-nomedia
+            dist/yatui-windows-amd64.exe
+            dist/yatui-windows-amd64-nomedia.exe
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true

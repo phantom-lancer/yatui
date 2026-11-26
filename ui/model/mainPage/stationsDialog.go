@@ -54,8 +54,9 @@ func (m *Model) openStations() tea.Cmd {
 	m.isStationsActive = true
 	m.stations = &stationsDialogModel{input: input, loading: true}
 
+	client := m.client
 	go func() {
-		m.Send(stationsLoadedMsg{stations: m.loadStations()})
+		m.Send(stationsLoadedMsg{stations: loadStations(client)})
 	}()
 
 	return tea.ClearScreen

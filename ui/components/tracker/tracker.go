@@ -134,6 +134,15 @@ type Model struct {
 
 	// eqEnabled reports whether the equalizer changes the sound right now.
 	eqEnabled bool
+	// eqGraphic selects the fifteen band engine of the graphic view.
+	eqGraphic bool
+	// normalizationFast selects the one second loudness measurement. It is
+	// a snapshot of the config, never read from the audio thread.
+	normalizationFast bool
+	// normalizationOn is the snapshot of the normalization setting.
+	normalizationOn bool
+	// visualizerOn is the snapshot of the visualizer setting.
+	visualizerOn bool
 
 	// hover is the control under the mouse pointer; it only changes colors
 	// and is updated on mouse motion.
@@ -208,6 +217,11 @@ func New(p *tea.Program, likesMap *map[string]bool, dislikesMap *map[string]bool
 
 	m.help.Ellipsis = "…"
 	m.trackWrapper = &readWrapper{program: m.program}
+	m.normalizationFast = config.Current.Normalization != nil && config.Current.Normalization.Fast
+	m.normalizationOn = config.Current.Normalization != nil && config.Current.Normalization.Enabled
+	m.trackWrapper.SetFastNormalization(m.normalizationFast)
+	m.trackWrapper.SetNormalization(m.normalizationOn)
+	m.trackWrapper.SetVisualizer(m.visualizerOn)
 
 	bufferMs := config.Current.BufferSize
 	if bufferMs < 180 {
@@ -409,7 +423,15 @@ func (m *Model) view() (string, *Regions) {
 		progressBlock, volumeIndicator, transportGap, eqButton,
 	)
 
-	topOffset := 0
+	// the section label gives the player a clear top edge and tells the
+	// offline state apart at a glance
+	header := style.SectionLabelStyle.Render("СЕЙЧАС ИГРАЕТ")
+	if config.Current.Offline {
+		header += "  " + style.BadgeStyle.Render("офлайн")
+	}
+	topOffset := 2
+	tracker = lipgloss.JoinVertical(lipgloss.Left, header, "", tracker)
+
 	if m.showLyrics {
 		lyrics := m.renderLyrics()
 		topOffset += lipgloss.Height(lyrics) + 1
@@ -473,6 +495,11 @@ func (m *Model) view() (string, *Regions) {
 	versionText := " " + m.track.Version
 	if m.loading {
 		versionText = " загрузка…"
+	}
+	if config.Current.Offline {
+		// the badge makes the mode visible at a glance: in the offline mode
+		// only the cached tracks can start
+		versionText += " · офлайн"
 	}
 	trackVersion := style.TrackVersionStyle.Render(versionText)
 	trackTitle = lipgloss.JoinHorizontal(lipgloss.Top, trackTitle, trackVersion)
@@ -717,13 +744,70 @@ func (m *Model) SetVolume(v float64) {
 	config.SaveLater()
 }
 
-// SetEQ turns the equalizer on or off and sets the gains of its bands.
+// SetEQ turns the classic equalizer on or off and sets the gains of its bands.
 func (m *Model) SetEQ(enabled bool, gains [equalizer.Bands]float64) {
 	if m.trackWrapper == nil {
 		return
 	}
 	m.trackWrapper.SetEQ(enabled, gains)
 	m.eqEnabled = enabled
+}
+
+// SetGraphicEQ turns the fifteen band equalizer on or off.
+func (m *Model) SetGraphicEQ(enabled bool, gains [equalizer.GraphicBands]float64) {
+	if m.trackWrapper == nil {
+		return
+	}
+	m.trackWrapper.SetGraphicEQ(enabled, gains)
+	m.eqEnabled = enabled
+}
+
+// SetEQMode selects the ten or the fifteen band engine.
+func (m *Model) SetEQMode(graphic bool) {
+	if m.trackWrapper == nil {
+		return
+	}
+	m.eqGraphic = graphic
+	m.trackWrapper.SetEQMode(graphic)
+}
+
+// EQMode reports whether the graphic engine is selected.
+func (m *Model) EQMode() bool {
+	return m.eqGraphic
+}
+
+// SetFastNormalization selects the quick loudness measurement.
+func (m *Model) SetFastNormalization(fast bool) {
+	m.normalizationFast = fast
+	if m.trackWrapper != nil {
+		m.trackWrapper.SetFastNormalization(fast)
+	}
+}
+
+// FastNormalization reports the selected loudness measurement.
+func (m *Model) FastNormalization() bool {
+	return m.normalizationFast
+}
+
+// SetNormalization selects the normalized playback.
+func (m *Model) SetNormalization(enabled bool) {
+	m.normalizationOn = enabled
+	if m.trackWrapper != nil {
+		m.trackWrapper.SetNormalization(enabled)
+	}
+}
+
+// Normalization reports the normalized playback setting.
+func (m *Model) Normalization() bool {
+	return m.normalizationOn
+}
+
+// SetVisualizer tells the audio path whether the level is needed.
+func (m *Model) SetVisualizer(enabled bool) {
+	m.visualizerOn = enabled
+	if m.trackWrapper != nil {
+		m.trackWrapper.SetVisualizer(enabled)
+	}
 }
 
 // EQEnabled reports whether the equalizer changes the sound right now.
@@ -818,6 +902,10 @@ func (m *Model) StartTrack(track *api.Track, reader *stream.BufferedStream, lyri
 	// the equalizer coefficients are computed for the real sample rate of
 	// the track
 	m.trackWrapper.SetEQRate(m.trackWrapper.SampleRate())
+	m.trackWrapper.SetEQMode(m.eqGraphic)
+	m.trackWrapper.SetFastNormalization(m.normalizationFast)
+	m.trackWrapper.SetNormalization(m.normalizationOn)
+	m.trackWrapper.SetVisualizer(m.visualizerOn)
 	// The decoder, loudness meter and equalizer run ahead in a bounded worker.
 	// Oto only drains ready PCM and never waits for the network or MP3 decoder.
 	m.trackWrapper.deferEnded = true
@@ -861,6 +949,15 @@ func (m *Model) Stop() {
 		m.playtime += time.Since(m.playStarted)
 	}
 	m.paused = true
+}
+
+// Amplitude returns the peak of the last decoded audio buffer, 0..1. It is
+// lock free: the visualizer polls it without touching the audio thread.
+func (m *Model) Amplitude() float64 {
+	if m.trackWrapper == nil {
+		return 0
+	}
+	return float64(math.Float32frombits(atomic.LoadUint32(&m.trackWrapper.amplitude)))
 }
 
 func (m *Model) IsPlaying() bool {

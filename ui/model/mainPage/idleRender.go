@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phantom-lancer/yatui/config"
 	"github.com/phantom-lancer/yatui/ui/components/tracker"
 )
 
@@ -16,7 +17,20 @@ import (
 const (
 	// idleRenderPeriod is the minimum interval between idle frames.
 	idleRenderPeriod = 80 * time.Millisecond
+
+	// saverIdleRenderPeriod is the same interval in the resource saving
+	// mode: half of the repaints, with no visual difference for the static
+	// parts of the screen.
+	saverIdleRenderPeriod = 200 * time.Millisecond
 )
+
+// frameInterval returns the idle cadence for the current settings.
+func frameInterval() time.Duration {
+	if config.Current.ResourceSaver {
+		return saverIdleRenderPeriod
+	}
+	return idleRenderPeriod
+}
 
 // idleRenderMsg is the postponed frame of an idle screen. Its generation
 // makes a stale timer harmless after a key/click or a newer frame is queued.
@@ -47,6 +61,12 @@ func (m *Model) frameDecision(message tea.Msg) (immediate bool, schedule bool) {
 	if _, ok := message.(idleRenderMsg); ok {
 		return false, false
 	}
+	// The visualizer tick repaints through its own fast path and never
+	// invalidates the cached screen: a tick without a new frame must not
+	// lay out the interface again.
+	if _, ok := message.(vizTickMsg); ok {
+		return false, false
+	}
 	if !m.idleScreen() {
 		return true, false
 	}
@@ -59,20 +79,26 @@ func (m *Model) frameDecision(message tea.Msg) (immediate bool, schedule bool) {
 			return true, false
 		}
 	case tracker.ProgressControl:
+		// While the visualizer animates, its frames repaint the progress bar
+		// within a frame or two: a separate repaint would lay out the whole
+		// interface for a number that is about to be drawn anyway.
+		if m.visualizerAnimating() {
+			return false, false
+		}
 		// Progress samples are drawn at the same bounded idle cadence.
 	default:
 		// keys, dialogs, notifications and the like react at once
 		return true, false
 	}
 
-	if time.Since(m.progressDrawn) >= idleRenderPeriod {
+	if time.Since(m.progressDrawn) >= frameInterval() {
 		return true, false
 	}
 	return false, true
 }
 
 func idleRenderTick(generation uint64) tea.Cmd {
-	return tea.Tick(idleRenderPeriod, func(time.Time) tea.Msg {
+	return tea.Tick(frameInterval(), func(time.Time) tea.Msg {
 		return idleRenderMsg{generation: generation}
 	})
 }

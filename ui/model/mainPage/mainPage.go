@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/phantom-lancer/yatui/api"
@@ -23,6 +24,7 @@ import (
 	"github.com/phantom-lancer/yatui/ui/model/hotkeys"
 	"github.com/phantom-lancer/yatui/ui/style"
 	"github.com/phantom-lancer/yatui/updater"
+	"github.com/phantom-lancer/yatui/visualizer"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -187,8 +189,41 @@ type Model struct {
 	// progressDrawn is when the last visible frame was produced.
 	progressDrawn time.Time
 
+	// loadMu serializes the full reloads: two of them at once would fight
+	// over the sidebar and the client.
+	loadMu sync.Mutex
+
 	// repeatMode controls queue behavior: off, all, one.
 	repeatMode tracker.RepeatMode
+
+	// visualizer is the audio reactive panel of "My Wave". It owns one
+	// worker and one frame heartbeat; disabling it releases both.
+	visualizer    *visualizer.Renderer
+	vizFrame      visualizer.Frame
+	vizFrameValid bool
+	// vizFrameWidth/vizFrameHeight describe the frame that was accepted, so
+	// a frame of a previous size is never stretched over a new panel.
+	vizFrameWidth, vizFrameHeight int
+	// vizContentW/vizContentH are the cell size of the panel of the last
+	// main-screen layout. The tick uses them, so the worker renders exactly
+	// the size that is on the screen.
+	vizContentW, vizContentH int
+	vizTicking               bool
+	vizGeneration            uint64
+	// vizDirty marks a new frame that has not been drawn yet.
+	vizDirty bool
+	// vizNoop marks a visualizer tick that produced no new frame: the screen
+	// is reused instead of being rebuilt.
+	vizNoop bool
+	// vizLayout caches the parts of the main screen that the animation does
+	// not change.
+	vizLayout vizLayoutCache
+	// pendingCache is the main screen that View has to store in the cache
+	// after painting the version label.
+	pendingCache *layoutCacheRequest
+
+	// offlineDownloadGen cancels a playlist download when a new one starts.
+	offlineDownloadGen int64
 }
 
 // mainpage.Model constructor.
@@ -212,7 +247,7 @@ func New(mediaHandler handler.MediaHandler) *Model {
 		m.scrobbles = lastfm.NewQueue(filepath.Join(dir, "lastfm-scrobbles.json"))
 	}
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.Points))
-	m.playlists = playlist.New(m.program, "YaMusic")
+	m.playlists = playlist.New(m.program, "yatui · музыка")
 	m.tracklist = tracklist.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap, &m.cachedTracksMap)
 	m.tracker = tracker.New(m.program, &m.likedTracksMap, &m.dislikedTracksMap)
 	// the equalizer of the config must reach the player before the first
@@ -251,7 +286,7 @@ func (m *Model) Init() tea.Cmd {
 	m.isLoading = true
 	go m.initialLoad()
 	go m.pruneCoverCache()
-	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, m.startDiscordTick(), m.rgbStart(), m.winterStart())
+	return tea.Batch(tea.SetWindowTitle("yatui"), m.spinner.Tick, m.startDiscordTick(), m.rgbStart(), m.winterStart(), m.startVisualizer())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -259,6 +294,13 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
+
+	// Every message except the visualizer tick may change the screen; the
+	// cached layout is dropped before the message is applied.
+	if _, isViz := message.(vizTickMsg); !isViz {
+		m.invalidateLayout()
+		m.vizNoop = false
+	}
 
 	// idle screens draw once the input settles instead of per event
 	immediate, schedule := m.frameDecision(message)
@@ -322,6 +364,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.tracker.StartVolumeFade()
 		}
 		return m, nil
+	case vizTickMsg:
+		return m, m.handleVizTick(msg)
 	case rgbTickMsg:
 		return m, m.handleRgbTick()
 	case winterTickMsg:
@@ -519,6 +563,27 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case bufferedTrackCachedMsg:
 		return m, m.applyBufferedTrackCached(msg)
 
+	case offlineDownloadMsg:
+		return m, m.applyOfflineDownload(msg)
+
+	case stationSessionMsg:
+		return m, m.applyStationSession(msg)
+
+	case artistTracksMsg:
+		return m, m.applyArtistTracks(msg)
+
+	case uiErrorMsg:
+		if m.tracker != nil {
+			m.tracker.ShowError(msg.text)
+		}
+		return m, nil
+
+	case uiHideErrorMsg:
+		if m.tracker != nil {
+			m.tracker.HideError()
+		}
+		return m, nil
+
 	case lastfmFlushedMsg:
 		if msg.count > 0 {
 			m.showToast(fmt.Sprintf("Last.fm: отправлено %d", msg.count))
@@ -605,6 +670,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.toggleCache())
 			cmds = append(cmds, tea.ClearScreen)
 		case controls.Reload.Contains(keypress):
+			if m.isLoading {
+				break
+			}
 			m.isLoading = true
 			cmd = m.playlists.Reset()
 			cmds = append(cmds, cmd)
@@ -833,6 +901,24 @@ func (m *Model) View() string {
 		return m.idleFrame
 	}
 
+	// A tick without a new frame: keep the screen that is already drawn.
+	if m.vizNoop && m.idleFrameValid {
+		return m.idleFrame
+	}
+
+	// The animation is the only thing that changed: rebuild the screen from
+	// the cached lines instead of laying out the whole interface again.
+	if m.vizDirty && len(m.toasts) == 0 && !winterMotionEnabled() {
+		m.vizDirty = false
+		if view, ok := m.composeVizOnly(); ok {
+			m.idleFrame = view
+			m.idleFrameValid = true
+			m.progressDrawn = time.Now()
+			return view
+		}
+	}
+
+	m.pendingCache = nil
 	var view string
 	if m.contextMenu != nil {
 		view = m.contextMenu.render(m.viewBody())
@@ -840,6 +926,12 @@ func (m *Model) View() string {
 		view = m.viewBody()
 	}
 	view = drawVersion(view)
+	if req := m.pendingCache; req != nil {
+		// the version label is part of the cached screen: the fast path
+		// never has to repaint it
+		m.cacheLayout(view, req)
+		m.pendingCache = nil
+	}
 	baseView := view
 	view = drawWinterOverlayWithParticles(view, m.winterFrame, m.winterParticles)
 	view = m.drawToastsAt(view, baseView)
@@ -911,22 +1003,62 @@ func (m *Model) viewBody() string {
 
 	trackerView := m.tracker.View()
 	trackerHeight := lipgloss.Height(trackerView)
-	m.tracklist.SetHeight(m.height - trackerHeight - 2)
+
+	// The panel mode takes its own block; the background mode paints behind
+	// the existing layout and must not move anything.
+	mode := visualizerMode()
+	var vizView string
+	vizHeight := 0
+	vizW, vizH := 0, 0
+	if m.visualizerVisible() {
+		switch mode {
+		case visualizer.ModePanel:
+			vizW, vizH = m.vizContentSize()
+			m.vizContentW, m.vizContentH = vizW, vizH
+			vizView = m.visualizerPanel(vizW, vizH)
+			vizHeight = lipgloss.Height(vizView)
+		case visualizer.ModeBackground:
+			m.vizContentW, m.vizContentH = m.width, m.height
+			vizW, vizH = m.width, m.height
+		}
+	} else {
+		m.vizContentW, m.vizContentH = 0, 0
+	}
+
+	m.tracklist.SetHeight(m.height - trackerHeight - vizHeight - 2)
 
 	tracklistView := m.tracklist.View()
 
 	var midPanel string
-	if m.tracklist.Hidden {
-		midPanel = trackerView
-	} else if m.tracker.Hidden {
-		midPanel = tracklistView
-	} else {
-		midPanel = lipgloss.JoinVertical(lipgloss.Left, tracklistView, trackerView)
+	switch {
+	case m.tracklist.Hidden && m.tracker.Hidden:
+		midPanel = vizView
+	case m.tracklist.Hidden:
+		midPanel = lipgloss.JoinVertical(lipgloss.Left, vizView, trackerView)
+	case m.tracker.Hidden:
+		midPanel = lipgloss.JoinVertical(lipgloss.Left, tracklistView, vizView)
+	default:
+		midPanel = lipgloss.JoinVertical(lipgloss.Left, tracklistView, vizView, trackerView)
 	}
 
 	m.updateMouseLayout(playlistView, tracklistView, trackerView, midPanel)
 
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, playlistView, midPanel)
+	base := lipgloss.JoinHorizontal(lipgloss.Bottom, playlistView, midPanel)
+	req := &layoutCacheRequest{mode: mode, vizW: vizW, vizH: vizH}
+	if mode == visualizer.ModePanel && vizW > 0 {
+		// The panel sits between the track list and the player; the joined
+		// screen is bottom aligned, so its row follows from the heights.
+		baseHeight := lipgloss.Height(base)
+		midHeight := lipgloss.Height(midPanel)
+		offset := 0
+		if !m.tracklist.Hidden {
+			offset = lipgloss.Height(tracklistView)
+		}
+		req.vizTop = baseHeight - midHeight + offset
+		req.vizCell = lipgloss.Width(playlistView)
+	}
+	m.pendingCache = req
+	return base
 }
 
 //
@@ -1100,7 +1232,7 @@ func (m *Model) mediaHandle() {
 
 func (m *Model) coverFilePath(track *api.Track) string {
 	tempDir := filepath.Join(os.TempDir(), config.DirName)
-	if os.MkdirAll(tempDir, 0755) != nil {
+	if os.MkdirAll(tempDir, 0700) != nil {
 		return ""
 	}
 	// one cover file, rewritten per track: a file per track grew without a
@@ -1190,7 +1322,7 @@ func trimLogFile(path string) {
 	tail := make([]byte, 1<<20)
 	n, _ := io.ReadFull(file, tail)
 
-	os.WriteFile(path, tail[:n], 0644)
+	os.WriteFile(path, tail[:n], 0600)
 }
 
 // coverCacheSize is the size of the shared cover file on disk, 0 when it is
@@ -1205,7 +1337,7 @@ func coverCacheSize() int64 {
 
 func (m *Model) metadataFilePath() string {
 	tempDir := filepath.Join(os.TempDir(), config.DirName)
-	if os.MkdirAll(tempDir, 0755) != nil {
+	if os.MkdirAll(tempDir, 0700) != nil {
 		return ""
 	}
 	return filepath.Join(tempDir, "metadata.mp3")

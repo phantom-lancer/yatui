@@ -122,9 +122,17 @@ func (f *biquad) process(x float32, s *biquadState) float32 {
 
 // peaking computes the coefficients of a peaking filter.
 func peaking(freq, gainDB, rate float64) biquad {
+	return peakingQ(freq, gainDB, rate, _BAND_Q)
+}
+
+// peakingQ computes the coefficients of a peaking filter with the given Q.
+func peakingQ(freq, gainDB, rate, q float64) biquad {
+	if q <= 0 {
+		q = _BAND_Q
+	}
 	a := math.Pow(10, gainDB/40)
 	w0 := 2 * math.Pi * freq / rate
-	alpha := math.Sin(w0) / (2 * _BAND_Q)
+	alpha := math.Sin(w0) / (2 * q)
 	cosw := math.Cos(w0)
 
 	a0 := 1 + alpha/a

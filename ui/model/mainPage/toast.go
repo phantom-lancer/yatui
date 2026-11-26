@@ -93,6 +93,20 @@ func (m *Model) drawToasts(view string) string {
 
 // drawToastsAt anchors notifications to the unanimated frame. Snow must not
 // change the last non-empty row and make the notifications jump vertically.
+// isBorderLine reports whether the line consists of a panel frame only.
+func isBorderLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	for _, r := range trimmed {
+		if !strings.ContainsRune("╭╮╰╯─│═║╔╗╚╝┌┐└┘├┤┬┴┼ ", r) {
+			return false
+		}
+	}
+	return true
+}
+
 func (m *Model) drawToastsAt(view, anchor string) string {
 	if len(m.toasts) == 0 {
 		return view
@@ -106,6 +120,11 @@ func (m *Model) drawToastsAt(view, anchor string) string {
 
 	last := len(anchorLines) - 1
 	for last > 0 && strings.TrimSpace(ansi.Strip(anchorLines[last])) == "" {
+		last--
+	}
+	// a panel ends with its bottom border: the notification belongs on the
+	// last content row, not on the frame
+	for last > 0 && isBorderLine(ansi.Strip(anchorLines[last])) {
 		last--
 	}
 	if last >= len(lines) {
